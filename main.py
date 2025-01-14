@@ -399,14 +399,20 @@ def callback():
     if VK_SECRET_KEY and data.get("secret") != VK_SECRET_KEY:
         return "Invalid secret", 403
 
-    # Обработка входящих сообщений
+    # Обработка входящих/исходящих сообщений
     if data.get("type") == "message_new":
-        user_id = data["object"]["message"]["from_id"]
-        text = data["object"]["message"]["text"]
+        msg = data["object"]["message"]
+        user_id = msg["from_id"]
+        text = msg["text"]
+
+        # out=0 => входящее сообщение, out=1 => исходящее от имени сообщества
+        out_flag = msg.get("out", 0)
+        is_outgoing = (out_flag == 1)
+
         vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
         vk = vk_session.get_api()
-        handle_new_message(user_id, text, vk)
 
+        handle_new_message(user_id, text, vk, is_outgoing=is_outgoing)
 
     return "ok"
 

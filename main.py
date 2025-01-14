@@ -368,14 +368,13 @@ def main():
     longpoll = VkLongPoll(vk_session)
     print("Бот запущен и слушает сообщения...")
 
-for event in longpoll.listen():
-    if event.type == VkEventType.MESSAGE_NEW:
-        user_id = event.user_id
-        text = event.text.strip()
-        is_outgoing = not event.to_me  # Если сообщение исходящее
-        if text:
-            handle_new_message(user_id, text, vk, is_outgoing=is_outgoing)
-
+    for event in longpoll.listen():  # Цикл перенесён внутрь main
+        if event.type == VkEventType.MESSAGE_NEW:
+            user_id = event.user_id
+            text = event.text.strip()
+            is_outgoing = not event.to_me  # Если сообщение исходящее
+            if text:
+                handle_new_message(user_id, text, vk, is_outgoing=is_outgoing)
 
 
 if __name__ == "__main__":

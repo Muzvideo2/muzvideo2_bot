@@ -13,9 +13,8 @@ import json
 import requests
 from datetime import datetime, timedelta
 import threading
-
-# ====== БИБЛИОТЕКИ ДЛЯ РАБОТЫ С VK ======
 import vk_api
+from flask import Flask, request, jsonify
 
 # ==============================
 # Читаем переменные окружения (секретные данные)

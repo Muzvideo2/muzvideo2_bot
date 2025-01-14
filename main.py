@@ -303,7 +303,8 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     lower_text = text.lower()
 
     # Логируем все сообщения (входящие и исходящие)
-    dialog_history_dict.setdefault(user_id, []).append({
+    dialog_history = dialog_history_dict.setdefault(user_id, [])
+    dialog_history.append({
         "user" if not is_outgoing else "operator": text
     })
 
@@ -317,8 +318,11 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
             print(f"Пользователь {user_id} снят с паузы. Бот снова будет отвечать.")
         return  # Игнорируем остальные исходящие сообщения
 
-    # Добавляем вызов уведомления в Telegram
-    send_telegram_notification(user_question=text, dialog_id=user_id)
+    # Отправляем уведомление только при новом диалоге или если пользователь написал "оператор"
+    if len(dialog_history) == 1:  # Новый диалог
+        send_telegram_notification(user_question=text, dialog_id=user_id)
+    elif "оператор" in lower_text:
+        send_telegram_notification(user_question=text, dialog_id=user_id)
 
     # Если пользователь на паузе, игнорируем входящее сообщение
     if user_id in paused_users:
@@ -334,6 +338,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     timer = threading.Timer(DELAY_SECONDS, generate_and_send_response, args=(user_id, vk))
     user_timers[user_id] = timer
     timer.start()
+
 
 
 def generate_and_send_response(user_id, vk):

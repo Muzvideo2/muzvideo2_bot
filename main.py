@@ -327,6 +327,10 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
 
 
 def generate_and_send_response(user_id, vk):
+    if vk is None:
+        print("Ошибка: объект vk не передан!")
+        return
+
     if user_id in paused_users:
         user_buffers[user_id] = []
         return
@@ -388,7 +392,10 @@ def callback():
     if data.get("type") == "message_new":
         user_id = data["object"]["message"]["from_id"]
         text = data["object"]["message"]["text"]
-        handle_new_message(user_id, text, None)  # None для vk, так как API используется внутри функции
+        vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
+        vk = vk_session.get_api()
+        handle_new_message(user_id, text, vk)
+
 
     return "ok"
 

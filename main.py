@@ -367,6 +367,10 @@ def main():
 # Запуск Flask-приложения для обработки Callback API
 app = Flask(__name__)
 
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))  # Render предоставляет PORT
+    app.run(host="0.0.0.0", port=port)
+
 @app.route("/callback", methods=["POST"])
 def callback():
     data = request.json
@@ -406,8 +410,3 @@ def send_message(user_id, message):
         "v": "5.131"
     }
     requests.post(url, params=params)
-
-
-
-if __name__ == "__main__":
-    main()

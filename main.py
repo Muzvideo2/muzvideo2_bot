@@ -24,7 +24,7 @@ ADMIN_CHAT_ID      = os.environ.get("ADMIN_CHAT_ID", "")
 GEMINI_API_KEY     = os.environ.get("GEMINI_API_KEY", "")
 VK_COMMUNITY_TOKEN = os.environ.get("VK_COMMUNITY_TOKEN", "")
 YANDEX_DISK_TOKEN  = os.environ.get("YANDEX_DISK_TOKEN", "")
-VK_CONFIRMATION_TOKEN = "75ffe266"
+VK_CONFIRMATION_TOKEN = "35ca0bf5"
 # ==============================
 # Пути к файлам
 # ==============================

@@ -247,8 +247,10 @@ def generate_response(user_question, dialog_history, custom_prompt, relevant_ans
     return "Извините, я сейчас не могу ответить. Попробуйте позже."
 
 def generate_summary_and_reason(dialog_history):
-    history_text = " | ".join([f"Пользователь: {turn['user']} -> Модель: {turn['bot']}"
-                               for turn in dialog_history[-10:]])
+    history_text = " | ".join([
+        f"Пользователь: {turn.get('user', 'Неизвестно')} -> Модель: {turn.get('bot', 'Нет ответа')}"
+        for turn in dialog_history[-10:]
+    ])
     prompt_text = f"""
 Сводка диалога: {history_text}
 
@@ -302,13 +304,12 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     """
     lower_text = text.lower()
 
-    # Логируем все сообщения (входящие и исходящие)
-    dialog_history = dialog_history_dict.setdefault(user_id, [])
-    dialog_history.append({
-        "user" if not is_outgoing else "operator": text
-    })
-
+    # Для исходящих сообщений (например, уведомление о паузе) логируем сразу
     if is_outgoing:
+        dialog_history = dialog_history_dict.setdefault(user_id, [])
+        dialog_history.append({
+            "operator": text
+        })
         # Реагируем только на команды "поставить на паузу" или "снять с паузы"
         if "я поставил бота на паузу" in lower_text:
             paused_users.add(user_id)
@@ -318,8 +319,11 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
             print(f"Пользователь {user_id} снят с паузы. Бот снова будет отвечать.")
         return  # Игнорируем остальные исходящие сообщения
 
+    # Для входящих сообщений не записываем их сразу в историю – запись производится
+    # после генерации ответа, чтобы контекст диалога был полным.
+
     # Отправляем уведомление только при новом диалоге или если пользователь написал "оператор"
-    if len(dialog_history) == 1:  # Новый диалог
+    if user_id not in dialog_history_dict or len(dialog_history_dict[user_id]) == 0:
         send_telegram_notification(user_question=text, dialog_id=user_id)
     elif "оператор" in lower_text:
         send_telegram_notification(user_question=text, dialog_id=user_id)
@@ -328,7 +332,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     if user_id in paused_users:
         return
 
-    # Обычная обработка входящих сообщений
+    # Запоминаем входящий текст для дальнейшей обработки
     user_buffers.setdefault(user_id, []).append(text)
     last_questions[user_id] = text
 

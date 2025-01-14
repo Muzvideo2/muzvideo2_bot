@@ -24,6 +24,7 @@ ADMIN_CHAT_ID      = os.environ.get("ADMIN_CHAT_ID", "")
 GEMINI_API_KEY     = os.environ.get("GEMINI_API_KEY", "")
 VK_COMMUNITY_TOKEN = os.environ.get("VK_COMMUNITY_TOKEN", "")
 YANDEX_DISK_TOKEN  = os.environ.get("YANDEX_DISK_TOKEN", "")
+VK_SECRET_KEY      = os.environ.get("VK_SECRET_KEY", "")
 VK_CONFIRMATION_TOKEN = "35ca0bf5"
 # ==============================
 # Пути к файлам
@@ -387,7 +388,7 @@ def callback():
     if data.get("type") == "message_new":
         user_id = data["object"]["message"]["from_id"]
         text = data["object"]["message"]["text"]
-        process_message(user_id, text)
+        handle_new_message(user_id, text, None)  # None для vk, так как API используется внутри функции
 
     return "ok"
 
@@ -403,7 +404,7 @@ def send_message(user_id, message):
     """
     url = "https://api.vk.com/method/messages.send"
     params = {
-        "access_token": VK_ACCESS_TOKEN,
+        "access_token": VK_COMMUNITY_TOKEN,
         "user_id": user_id,
         "message": message,
         "random_id": 0,

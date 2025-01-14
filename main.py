@@ -295,47 +295,39 @@ DELAY_SECONDS = 30
 paused_users = set()
 
 def handle_new_message(user_id, text, vk, is_outgoing=False):
-    """
-    Обрабатывает новое сообщение.
-    :param user_id: ID пользователя
-    :param text: текст сообщения
-    :param vk: объект VK API
-    :param is_outgoing: True, если сообщение исходящее
-    """
     lower_text = text.lower()
 
-    # Для исходящих сообщений (например, уведомление о паузе) логируем сразу
+    # Если сообщение исходящее (оператор пишет боту)
     if is_outgoing:
         dialog_history = dialog_history_dict.setdefault(user_id, [])
-        dialog_history.append({
-            "operator": text
-        })
-        # Реагируем только на команды "поставить на паузу" или "снять с паузы"
+        dialog_history.append({"operator": text})
         if "я поставил бота на паузу" in lower_text:
             paused_users.add(user_id)
-            print(f"Пользователь {user_id} поставлен на паузу. Бот не будет отвечать.")
         elif "бот снова будет отвечать" in lower_text:
             paused_users.discard(user_id)
-            print(f"Пользователь {user_id} снят с паузы. Бот снова будет отвечать.")
-        return  # Игнорируем остальные исходящие сообщения
+        return
 
-    # Для входящих сообщений не записываем их сразу в историю – запись производится
-    # после генерации ответа, чтобы контекст диалога был полным.
+    # 1. Сразу инициализируем историю для данного user_id (если нет)
+    if user_id not in dialog_history_dict:
+        dialog_history_dict[user_id] = []
 
-    # Отправляем уведомление только при новом диалоге или если пользователь написал "оператор"
-    if user_id not in dialog_history_dict or len(dialog_history_dict[user_id]) == 0:
+    # 2. Логика Телеграм-уведомления
+    # Отправляем уведомление только если история диалога ПУСТАЯ => первое сообщение
+    # или если в тексте есть "оператор"
+    if len(dialog_history_dict[user_id]) == 0:
         send_telegram_notification(user_question=text, dialog_id=user_id)
     elif "оператор" in lower_text:
         send_telegram_notification(user_question=text, dialog_id=user_id)
 
-    # Если пользователь на паузе, игнорируем входящее сообщение
+    # 3. Проверяем паузу
     if user_id in paused_users:
         return
 
-    # Запоминаем входящий текст для дальнейшей обработки
+    # 4. Складываем тексты в буфер
     user_buffers.setdefault(user_id, []).append(text)
     last_questions[user_id] = text
 
+    # 5. Сбрасываем/перезапускаем таймер
     if user_id in user_timers:
         user_timers[user_id].cancel()
 

@@ -102,6 +102,12 @@ def send_operator_notification(dialog_id, initial_question, dialog_summary, reas
 # 2. РАБОТА С ЯНДЕКС.ДИСКОМ: ЗАГРУЗКА ЛОГ-ФАЙЛОВ
 # ==============================
 def upload_log_to_yandex_disk(log_file_path):
+    # Проверяем, существует ли папка на Яндекс.Диске
+    create_dir_url = "https://cloud-api.yandex.net/v1/disk/resources"
+    headers = {"Authorization": f"OAuth {YANDEX_DISK_TOKEN}"}
+    params = {"path": "disk:/app-logs"}
+    requests.put(create_dir_url, headers=headers, params=params)
+
     """
     Загрузка лог-файла на Яндекс.Диск при помощи REST API.
 
@@ -167,6 +173,7 @@ def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, u
             for title, answer in zip(relevant_titles, relevant_answers):
                 log_file.write(f"[{formatted_time}] Найдено в базе знаний: {title} -> {answer}\n")
         log_file.write(f"[{formatted_time}] Модель: {bot_response}\n\n")
+    print(f"Содержимое лога:\n{open(log_file_path, 'r', encoding='utf-8').read()}")
 
     # Загружаем в Яндекс.Диск (вместо Google Drive)
     upload_log_to_yandex_disk(log_file_path)
@@ -309,6 +316,9 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
             paused_users.discard(user_id)
             print(f"Пользователь {user_id} снят с паузы. Бот снова будет отвечать.")
         return  # Игнорируем остальные исходящие сообщения
+
+    # Добавляем вызов уведомления в Telegram
+    send_telegram_notification(user_question=text, dialog_id=user_id)
 
     # Если пользователь на паузе, игнорируем входящее сообщение
     if user_id in paused_users:

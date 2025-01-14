@@ -16,7 +16,6 @@ import threading
 
 # ====== БИБЛИОТЕКИ ДЛЯ РАБОТЫ С VK ======
 import vk_api
-from vk_api.longpoll import VkLongPoll, VkEventType
 
 # ==============================
 # Читаем переменные окружения (секретные данные)
@@ -25,10 +24,8 @@ TELEGRAM_TOKEN     = os.environ.get("TELEGRAM_TOKEN", "")
 ADMIN_CHAT_ID      = os.environ.get("ADMIN_CHAT_ID", "")
 GEMINI_API_KEY     = os.environ.get("GEMINI_API_KEY", "")
 VK_COMMUNITY_TOKEN = os.environ.get("VK_COMMUNITY_TOKEN", "")
-
-# === Новый токен для Яндекс.Диска ===
 YANDEX_DISK_TOKEN  = os.environ.get("YANDEX_DISK_TOKEN", "")
-
+VK_CONFIRMATION_TOKEN = "75ffe266"
 # ==============================
 # Пути к файлам
 # ==============================
@@ -362,22 +359,55 @@ def generate_and_send_response(user_id, vk):
     )
 
 # ==============================
-# 7. ОСНОВНОЙ ЦИКЛ (Long Poll)
+# 7. ОСНОВНОЙ ЦИКЛ
 # ==============================
 def main():
     vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
     vk = vk_session.get_api()
 
-    longpoll = VkLongPoll(vk_session)
-    print("Бот запущен и слушает сообщения...")
+# Запуск Flask-приложения для обработки Callback API
+app = Flask(__name__)
 
-    for event in longpoll.listen():  # Цикл перенесён внутрь main
-        if event.type == VkEventType.MESSAGE_NEW:
-            user_id = event.user_id
-            text = event.text.strip()
-            is_outgoing = not event.to_me  # Если сообщение исходящее
-            if text:
-                handle_new_message(user_id, text, vk, is_outgoing=is_outgoing)
+@app.route("/callback", methods=["POST"])
+def callback():
+    data = request.json
+
+    # Проверка подтверждения сервера
+    if data.get("type") == "confirmation":
+        return VK_CONFIRMATION_TOKEN
+
+    # Проверка секретного ключа
+    if VK_SECRET_KEY and data.get("secret") != VK_SECRET_KEY:
+        return "Invalid secret", 403
+
+    # Обработка входящих сообщений
+    if data.get("type") == "message_new":
+        user_id = data["object"]["message"]["from_id"]
+        text = data["object"]["message"]["text"]
+        process_message(user_id, text)
+
+    return "ok"
+
+def process_message(user_id, text):
+    """
+    Логика обработки сообщений.
+    """
+    send_message(user_id, f"Вы написали: {text}")
+
+def send_message(user_id, message):
+    """
+    Отправляет сообщение через API ВКонтакте.
+    """
+    url = "https://api.vk.com/method/messages.send"
+    params = {
+        "access_token": VK_ACCESS_TOKEN,
+        "user_id": user_id,
+        "message": message,
+        "random_id": 0,
+        "v": "5.131"
+    }
+    requests.post(url, params=params)
+
 
 
 if __name__ == "__main__":

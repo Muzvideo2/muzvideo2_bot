@@ -285,33 +285,38 @@ DELAY_SECONDS = 30
 # ==============================
 paused_users = set()
 
-def handle_new_message(user_id, text, vk):
+def handle_new_message(user_id, text, vk, is_outgoing=False):
+    """
+    Обрабатывает новое сообщение.
+    :param user_id: ID пользователя
+    :param text: текст сообщения
+    :param vk: объект VK API
+    :param is_outgoing: True, если сообщение исходящее
+    """
     lower_text = text.lower()
 
-    if "я поставил бота на паузу" in lower_text:
-        paused_users.add(user_id)
-        print(f"Пользователь {user_id} поставлен на паузу. Бот ему не будет отвечать.")
-        return
+    # Логируем все сообщения (входящие и исходящие)
+    dialog_history_dict.setdefault(user_id, []).append({
+        "user" if not is_outgoing else "operator": text
+    })
 
-    if "бот снова будет отвечать" in lower_text:
-        if user_id in paused_users:
-            paused_users.remove(user_id)
+    if is_outgoing:
+        # Реагируем только на команды "поставить на паузу" или "снять с паузы"
+        if "я поставил бота на паузу" in lower_text:
+            paused_users.add(user_id)
+            print(f"Пользователь {user_id} поставлен на паузу. Бот не будет отвечать.")
+        elif "бот снова будет отвечать" in lower_text:
+            paused_users.discard(user_id)
             print(f"Пользователь {user_id} снят с паузы. Бот снова будет отвечать.")
-        # Не делаем return, продолжаем обработку
+        return  # Игнорируем остальные исходящие сообщения
 
+    # Если пользователь на паузе, игнорируем входящее сообщение
     if user_id in paused_users:
         return
 
-    if user_id not in dialog_history_dict:
-        dialog_history_dict[user_id] = []
-
-    if user_id not in user_buffers:
-        user_buffers[user_id] = []
-    user_buffers[user_id].append(text)
-
-    if user_id not in last_questions:
-        last_questions[user_id] = text
-        send_telegram_notification(text, user_id)
+    # Обычная обработка входящих сообщений
+    user_buffers.setdefault(user_id, []).append(text)
+    last_questions[user_id] = text
 
     if user_id in user_timers:
         user_timers[user_id].cancel()
@@ -319,6 +324,7 @@ def handle_new_message(user_id, text, vk):
     timer = threading.Timer(DELAY_SECONDS, generate_and_send_response, args=(user_id, vk))
     user_timers[user_id] = timer
     timer.start()
+
 
 def generate_and_send_response(user_id, vk):
     if user_id in paused_users:
@@ -363,11 +369,13 @@ def main():
     print("Бот запущен и слушает сообщения...")
 
     for event in longpoll.listen():
-        if event.type == VkEventType.MESSAGE_NEW and event.to_me:
-            user_id = event.user_id
-            text = event.text.strip()
-            if text:
-                handle_new_message(user_id, text, vk)
+    if event.type == VkEventType.MESSAGE_NEW:
+        user_id = event.user_id
+        text = event.text.strip()
+        is_outgoing = not event.to_me  # Если сообщение исходящее
+        if text:
+            handle_new_message(user_id, text, vk, is_outgoing=is_outgoing)
+
 
 if __name__ == "__main__":
     main()

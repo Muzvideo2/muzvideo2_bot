@@ -209,8 +209,11 @@ def find_relevant_titles_with_gemini(user_question):
     return []
 
 def generate_response(user_question, dialog_history, custom_prompt, relevant_answers=None):
-    history_text = "\n".join([f"Пользователь: {turn['user']}\nМодель: {turn['bot']}"
-                              for turn in dialog_history])
+    history_text = "\n".join([
+    f"Пользователь: {turn.get('user', 'Неизвестно')}\nМодель: {turn.get('bot', 'Неизвестно')}"
+    for turn in dialog_history
+])
+
     knowledge_hint = f"Подсказки из базы знаний: {relevant_answers}" if relevant_answers else ""
 
     full_prompt = (

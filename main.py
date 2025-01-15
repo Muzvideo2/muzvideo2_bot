@@ -462,7 +462,7 @@ def generate_and_send_response(user_id, vk):
     relevant_answers = [knowledge_base[t] for t in relevant_titles if t in knowledge_base]
 
     # Подсчёт токенов на вход
-    input_token_count = count_tokens(combined_text, GEMINI_API_KEY)
+    input_token_count = count_tokens(combined_text)
 
     model_response = generate_response(combined_text, dialog_history, custom_prompt, relevant_answers)
 

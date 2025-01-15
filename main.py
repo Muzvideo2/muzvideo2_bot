@@ -101,13 +101,18 @@ def send_operator_notification(dialog_id, initial_question, dialog_summary, reas
         "parse_mode": "Markdown"
     }
     requests.post(url, data=data)
-#============================
+# ============================
 # Функция подсчёта токенов
-#============================
-def count_tokens(prompt, api_key):
+# ============================
+def count_tokens(prompt):
     """
     Подсчитывает количество токенов в указанном тексте с помощью API Google Gemini.
     """
+    api_key = os.environ.get("GEMINI_API_KEY")  # Используем переменную окружения
+    if not api_key:
+        print("Ошибка: Переменная окружения GEMINI_API_KEY не найдена.")
+        return 0
+
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:countTokens"
     headers = {
         "Content-Type": "application/json",

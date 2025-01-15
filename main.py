@@ -232,31 +232,27 @@ def load_dialog_from_db(user_id):
 # 4. ЛОГИРОВАНИЕ
 # ==============================
 def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id):
-    """
-    Логируем в локальный файл + отправляем пару (user_message, bot_message) в PostgreSQL.
-    Без подсчёта токенов.
-    """
-    # Сохраняем в базу данных
     store_dialog_in_db(user_id, user_question, bot_response)
 
     current_time = datetime.utcnow() + timedelta(hours=6)
     formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
 
-    # Определяем лог-файл для пользователя
+    # Определяем лог-файл
     if user_id in user_log_files:
         local_log_file = user_log_files[user_id]
     else:
         local_log_file = log_file_path
 
+    # Получаем имя и фамилию пользователя
+    first_name, last_name = user_names.get(user_id, ("Имя_не_найдено", "Фамилия_не_найдена"))
+
     # Пишем данные в лог-файл
     with open(local_log_file, "a", encoding="utf-8") as log_file:
-        log_file.write(f"[{formatted_time}] user_id={user_id}, Пользователь: {user_question}\n")
+        log_file.write(f"[{formatted_time}] {first_name} {last_name}: {user_question}\n")
         if relevant_titles and relevant_answers:
             for title, answer in zip(relevant_titles, relevant_answers):
                 log_file.write(f"[{formatted_time}] Найдено в базе знаний: {title} -> {answer}\n")
         log_file.write(f"[{formatted_time}] Модель: {bot_response}\n\n")
-
-    print(f"Содержимое лога:\n{open(local_log_file, 'r', encoding='utf-8').read()}")
 
     # Загружаем лог-файл в Яндекс.Диск
     upload_log_to_yandex_disk(local_log_file)
@@ -402,21 +398,24 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     last_name = user_info[0].get("last_name", "")
     full_name = f"{first_name}_{last_name}"
     lower_text = text.lower()
-    
+
     # Если сообщение исходящее (оператор пишет боту)
     if is_outgoing:
         dialog_history = dialog_history_dict.setdefault(user_id, [])
         dialog_history.append({"operator": text})
 
-        # Логирование оператора
+        # Логирование оператора (сообщение от имени сообщества)
         current_time = datetime.utcnow() + timedelta(hours=6)
         formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
         if user_id in user_log_files:
             op_log_path = user_log_files[user_id]
         else:
-            op_log_path = log_file_path
+            now_str = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
+            op_log_path = os.path.join(logs_directory, f"dialog_{now_str}_{first_name}_{last_name}.txt")
+            user_log_files[user_id] = op_log_path
+
         with open(op_log_path, "a", encoding="utf-8") as f:
-            f.write(f"[{formatted_time}] user_id={user_id}, Оператор: {text}\n\n")
+            f.write(f"[{formatted_time}] Онлайн-школа фортепиано: {text}\n\n")
 
         if "я поставил бота на паузу" in lower_text:
             paused_users.add(user_id)
@@ -479,6 +478,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     timer = threading.Timer(DELAY_SECONDS, generate_and_send_response, args=(user_id, vk))
     user_timers[user_id] = timer
     timer.start()
+
 
 def generate_and_send_response(user_id, vk):
     if vk is None:

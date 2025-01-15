@@ -2,4 +2,5 @@ Flask
 requests
 vk_api
 gunicorn
+psycopg2-binary
 

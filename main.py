@@ -17,14 +17,10 @@ GEMINI_API_KEY     = os.environ.get("GEMINI_API_KEY", "")
 VK_COMMUNITY_TOKEN = os.environ.get("VK_COMMUNITY_TOKEN", "")
 YANDEX_DISK_TOKEN  = os.environ.get("YANDEX_DISK_TOKEN", "")
 VK_SECRET_KEY      = os.environ.get("VK_SECRET_KEY", "")
-VK_CONFIRMATION_TOKEN = "35ca0bf5"
 
 # Параметры PostgreSQL (Render)
-PG_DBNAME   = os.environ.get("PG_DBNAME", "")
-PG_USER     = os.environ.get("PG_USER", "")
-PG_PASSWORD = os.environ.get("PG_PASSWORD", "")
-PG_HOST     = os.environ.get("PG_HOST", "")
-PG_PORT     = os.environ.get("PG_PORT", "5432")
+
+DATABASE_URL = os.environ.get("DATABASE_URL")  
 
 # ==============================
 # Пути к файлам
@@ -182,14 +178,11 @@ def store_dialog_in_db(user_id, user_message, bot_message):
     Предварительно создаём таблицу, если её нет.
     """
     try:
-        conn = psycopg2.connect(
-            dbname=PG_DBNAME,
-            user=PG_USER,
-            password=PG_PASSWORD,
-            host=PG_HOST,
-            port=PG_PORT
-        )
+        # Подключение к базе через DATABASE_URL
+        conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
+
+        # Создание таблицы, если её нет
         cur.execute("""
             CREATE TABLE IF NOT EXISTS dialogues (
                 id SERIAL PRIMARY KEY,
@@ -199,12 +192,18 @@ def store_dialog_in_db(user_id, user_message, bot_message):
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
+        # Вставка записи
         cur.execute(
             """INSERT INTO dialogues (user_id, user_message, bot_message)
                VALUES (%s, %s, %s)""",
             (user_id, user_message, bot_message)
         )
+        
+        # Фиксация изменений
         conn.commit()
+        
+        # Закрытие курсора и соединения
         cur.close()
         conn.close()
     except Exception as e:

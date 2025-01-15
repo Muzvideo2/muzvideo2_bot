@@ -227,6 +227,10 @@ def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, u
     current_time = datetime.utcnow() + timedelta(hours=6)
     formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
 
+    # Определяем имя и фамилию пользователя для логирования
+    first_name, last_name = user_names.get(user_id, ("Неизвестно", ""))
+    user_identifier = f"{first_name} {last_name}".strip() if first_name and last_name else f"user_id={user_id}"
+
     # Определяем лог-файл для пользователя
     if user_id in user_log_files:
         local_log_file = user_log_files[user_id]
@@ -235,7 +239,7 @@ def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, u
 
     # Пишем данные в лог-файл
     with open(local_log_file, "a", encoding="utf-8") as log_file:
-        log_file.write(f"[{formatted_time}] user_id={user_id}, Пользователь: {user_question}\n")
+        log_file.write(f"[{formatted_time}] {user_identifier}, Пользователь: {user_question}\n")
         if relevant_titles and relevant_answers:
             for title, answer in zip(relevant_titles, relevant_answers):
                 log_file.write(f"[{formatted_time}] Найдено в базе знаний: {title} -> {answer}\n")
@@ -289,15 +293,6 @@ def generate_response(user_question, dialog_history, custom_prompt, relevant_ans
         if 'user' in turn else f"Оператор: {turn.get('operator', '')}"
         for turn in dialog_history
     ])
-    # Допишем ответы модели в ту же строку (как было):
-    # но тут вы сами управляете форматом, если нужно изменить
-    # Сейчас сохраняем старый стиль логики:
-    history_text = "\n".join([
-        f"Пользователь: {turn.get('user','Неизвестно')}\nМодель: {turn.get('bot','Нет ответа')}"
-        if "user" in turn else
-        f"Оператор: {turn.get('operator','Неизвестно')}\nМодель: {turn.get('bot','Нет ответа')}"
-        for turn in dialog_history
-    ])
 
     knowledge_hint = f"Подсказки из базы знаний: {relevant_answers}" if relevant_answers else ""
 
@@ -311,21 +306,30 @@ def generate_response(user_question, dialog_history, custom_prompt, relevant_ans
     data = {
         "contents": [{"parts": [{"text": full_prompt}]}]
     }
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {os.environ['GEMINI_API_KEY']}"
+    }
 
     for attempt in range(5):
-        resp = requests.post(gemini_url, headers=headers, json=data)
+        resp = requests.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+            headers=headers,
+            json=data
+        )
         if resp.status_code == 200:
             try:
                 result = resp.json()
-                return result['candidates'][0]['content']['parts'][0]['text']
+                model_response = result['candidates'][0]['content']['parts'][0]['text']
+                usage_metadata = result.get("usage_metadata", {})
+                return model_response, usage_metadata
             except KeyError:
-                return "Извините, произошла ошибка при обработке ответа модели."
+                return "Извините, произошла ошибка при обработке ответа модели.", {}
         elif resp.status_code == 500:
             time.sleep(10)
         else:
-            return f"Ошибка: {resp.status_code}. {resp.text}"
-    return "Извините, я сейчас не могу ответить. Попробуйте позже."
+            return f"Ошибка: {resp.status_code}. {resp.text}", {}
+    return "Извините, я сейчас не могу ответить. Попробуйте позже.", {}
 
 def generate_summary_and_reason(dialog_history):
     history_text = " | ".join([

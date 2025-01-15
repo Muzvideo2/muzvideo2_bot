@@ -105,6 +105,28 @@ def send_operator_notification(dialog_id, initial_question, dialog_summary, reas
         "parse_mode": "Markdown"
     }
     requests.post(url, data=data)
+#============================
+# Функция подсчёта токенов
+#============================
+def count_tokens(prompt, api_key):
+    """
+    Подсчитывает количество токенов в указанном тексте с помощью API Google Gemini.
+    """
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:countTokens"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    data = {
+        "prompt": prompt
+    }
+    response = requests.post(url, headers=headers, json=data)
+    if response.status_code == 200:
+        return response.json().get("tokenCount", 0)
+    else:
+        print(f"Ошибка подсчёта токенов: {response.status_code} - {response.text}")
+        return 0
+
 
 # ==============================
 # 2. РАБОТА С ЯНДЕКС.ДИСКОМ: ЗАГРУЗКА ЛОГ-ФАЙЛОВ
@@ -191,35 +213,37 @@ def store_dialog_in_db(user_id, user_message, bot_message):
 # ==============================
 # 4. ЛОГИРОВАНИЕ
 # ==============================
-def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id):
+def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id, input_tokens=0, output_tokens=0):
     """
-    Логируем в файл + отправляем пару в PostgreSQL.
+    Логируем в файл + отправляем пару в PostgreSQL (без токенов в базе данных).
     """
-    # Сохраняем в БД
+    # Сохраняем в базу данных только вопросы и ответы
     store_dialog_in_db(user_id, user_question, bot_response)
 
     current_time = datetime.utcnow() + timedelta(hours=6)
     formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
 
-    # Определяем, какой лог-файл использовать для этого пользователя
-    # Если уже создан индивидуальный (где в названии имя/фамилия), берём его
-    # Иначе пока пишем в общий
+    # Определяем лог-файл для пользователя
     if user_id in user_log_files:
         local_log_file = user_log_files[user_id]
     else:
         local_log_file = log_file_path
 
+    # Пишем данные в лог-файл
     with open(local_log_file, "a", encoding="utf-8") as log_file:
         log_file.write(f"[{formatted_time}] user_id={user_id}, Пользователь: {user_question}\n")
         if relevant_titles and relevant_answers:
             for title, answer in zip(relevant_titles, relevant_answers):
                 log_file.write(f"[{formatted_time}] Найдено в базе знаний: {title} -> {answer}\n")
-        log_file.write(f"[{formatted_time}] Модель: {bot_response}\n\n")
+        log_file.write(f"[{formatted_time}] Модель: {bot_response}\n")
+        log_file.write(f"[{formatted_time}] Входящие токены: {input_tokens}, Исходящие токены: {output_tokens}\n\n")
 
     print(f"Содержимое лога:\n{open(local_log_file, 'r', encoding='utf-8').read()}")
 
-    # Загружаем в Яндекс.Диск
+    # Загружаем лог-файл в Яндекс.Диск
     upload_log_to_yandex_disk(local_log_file)
+
+
 
 # ==============================
 # 5. ИНТЕГРАЦИЯ С GEMINI
@@ -433,9 +457,15 @@ def generate_and_send_response(user_id, vk):
     relevant_titles = find_relevant_titles_with_gemini(combined_text)
     relevant_answers = [knowledge_base[t] for t in relevant_titles if t in knowledge_base]
 
+    # Подсчёт токенов на вход
+    input_token_count = count_tokens(combined_text, GEMINI_API_KEY)
+
     model_response = generate_response(combined_text, dialog_history, custom_prompt, relevant_answers)
 
-    log_dialog(combined_text, model_response, relevant_titles, relevant_answers, user_id)
+    # Подсчёт токенов на выход
+    output_token_count = count_tokens(model_response, GEMINI_API_KEY)
+
+    log_dialog(combined_text, model_response, relevant_titles, relevant_answers, user_id, input_token_count, output_token_count)
 
     if "оператор" in combined_text.lower():
         summary, reason = generate_summary_and_reason(dialog_history)
@@ -449,6 +479,7 @@ def generate_and_send_response(user_id, vk):
         message=model_response,
         random_id=int(time.time() * 1000)
     )
+
 
 # ==============================
 # 8. ОСНОВНОЙ ЦИКЛ

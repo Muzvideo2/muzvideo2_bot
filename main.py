@@ -467,7 +467,7 @@ def generate_and_send_response(user_id, vk):
     model_response = generate_response(combined_text, dialog_history, custom_prompt, relevant_answers)
 
     # Подсчёт токенов на выход
-    output_token_count = count_tokens(model_response, GEMINI_API_KEY)
+    output_token_count = count_tokens(model_response)
 
     log_dialog(combined_text, model_response, relevant_titles, relevant_answers, user_id, input_token_count, output_token_count)
 

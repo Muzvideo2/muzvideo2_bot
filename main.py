@@ -383,12 +383,26 @@ DELAY_SECONDS = 30
 # ==============================
 # 7. ПАУЗА ДЛЯ КОНКРЕТНОГО ПОЛЬЗОВАТЕЛЯ
 # ==============================
+def is_user_paused(full_name):
+    """
+    Проверяет через API Телеграм-бота, находится ли пользователь на паузе.
+    """
+    try:
+        response = requests.get(f"https://telegram-bot-k2hl.onrender.com/is_paused/{full_name}")
+        return response.json().get("paused", False)
+    except Exception as e:
+        print(f"Ошибка при запросе паузы: {e}")
+        return False
+
 paused_users = set()
 
-
 def handle_new_message(user_id, text, vk, is_outgoing=False):
+    user_info = vk.users.get(user_ids=user_id)
+    first_name = user_info[0].get("first_name", "")
+    last_name = user_info[0].get("last_name", "")
+    full_name = f"{first_name}_{last_name}"
     lower_text = text.lower()
-
+    
     # Если сообщение исходящее (оператор пишет боту)
     if is_outgoing:
         dialog_history = dialog_history_dict.setdefault(user_id, [])
@@ -450,9 +464,10 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
                 last_name=last_name
             )
 
-    # 3. Проверяем паузу
-    if user_id in paused_users:
-        return
+    # 3. Проверяем, находится ли пользователь в paused_names
+    if is_user_paused(full_name):
+        print(f"Пользователь {full_name} находится на паузе. Пропускаем сообщение.")
+        return  # Не отвечаем пользователю
 
     # 4. Добавляем сообщение в буфер
     user_buffers.setdefault(user_id, []).append(text)
@@ -464,7 +479,6 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     timer = threading.Timer(DELAY_SECONDS, generate_and_send_response, args=(user_id, vk))
     user_timers[user_id] = timer
     timer.start()
-
 
 def generate_and_send_response(user_id, vk):
     if vk is None:

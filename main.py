@@ -2,7 +2,7 @@ import os
 import time
 import json
 import requests
-import psycopg2  # <-- ДОБАВЛЕНО для работы с PostgreSQL
+import psycopg2  # <-- для работы с PostgreSQL
 from datetime import datetime, timedelta
 import threading
 import vk_api
@@ -17,10 +17,14 @@ GEMINI_API_KEY     = os.environ.get("GEMINI_API_KEY", "")
 VK_COMMUNITY_TOKEN = os.environ.get("VK_COMMUNITY_TOKEN", "")
 YANDEX_DISK_TOKEN  = os.environ.get("YANDEX_DISK_TOKEN", "")
 VK_SECRET_KEY      = os.environ.get("VK_SECRET_KEY", "")
+VK_CONFIRMATION_TOKEN = os.environ.get("VK_CONFIRMATION_TOKEN", "")
 
-# Параметры PostgreSQL (Render)
+# Параметры PostgreSQL
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-DATABASE_URL = os.environ.get("DATABASE_URL")  
+# ID сообщества (нужно для формирования ссылки формата https://vk.com/gim<community_id>?sel=<user_id>)
+# Например, если сообщество имеет адрес https://vk.com/club48116621, то его ID = 48116621
+VK_COMMUNITY_ID = "48116621"  # <-- Поставьте реальный ID вашего сообщества
 
 # ==============================
 # Пути к файлам
@@ -53,24 +57,29 @@ dialog_history_dict = {}
 user_names = {}
 user_log_files = {}
 
-# Лог-файл по умолчанию (используем, пока не знаем имени пользователя),
-# однако после получения имени формируем отдельный
+# Лог-файл по умолчанию (используем, пока не знаем имени пользователя)
 log_file_path = os.path.join(
-    logs_directory, 
+    logs_directory,
     f"dialog_{datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
 )
+
 
 # ==============================
 # 1. ФУНКЦИИ УВЕДОМЛЕНИЙ В ТЕЛЕГРАМ
 # ==============================
-def send_telegram_notification(user_question, dialog_id):
-    current_time = datetime.utcnow() + timedelta(hours=6)  # Время Омска (+6 к UTC)
-    formatted_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
+def send_telegram_notification(user_question, dialog_id, first_name="", last_name=""):
+    """
+    Уведомление в телеграм при первом сообщении пользователя или при запросе "оператор".
+    Диалог-ссылка вида https://vk.com/gim<community_id>?sel=<user_id>.
+    """
+    # Формируем ссылку на диалог внутри сообщества:
+    vk_dialog_link = f"https://vk.com/gim{VK_COMMUNITY_ID}?sel={dialog_id}"
 
+    # Убираем дату/время (Телеграм сам показывает) и добавляем имя/фамилию
     message = f"""
-🕒 Дата и время (Омск): {formatted_time}
-👤 Стартовый вопрос: {user_question}
-🔗 Ссылка на диалог: https://vk.com/im?sel={dialog_id}
+👤 Пользователь: {first_name} {last_name}
+Стартовый вопрос: {user_question}
+🔗 Ссылка на диалог: {vk_dialog_link}
     """.strip()
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -81,17 +90,20 @@ def send_telegram_notification(user_question, dialog_id):
     }
     requests.post(url, data=data)
 
-def send_operator_notification(dialog_id, initial_question, dialog_summary, reason_guess):
-    current_time = datetime.utcnow() + timedelta(hours=6)
-    formatted_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
+
+def send_operator_notification(dialog_id, initial_question, dialog_summary, reason_guess, first_name="", last_name=""):
+    """
+    Уведомление, если пользователь запросил оператора в процессе диалога.
+    """
+    vk_dialog_link = f"https://vk.com/gim{VK_COMMUNITY_ID}?sel={dialog_id}"
 
     message = f"""
 🆘 Запрос оператора!
-🕒 Дата и время (Омск): {formatted_time}
-👤 Изначальный вопрос клиента: {initial_question}
-📋 Обсуждение в ходе диалога: {dialog_summary}
-🤔 Предполагаемая причина запроса оператора: {reason_guess}
-🔗 Ссылка на диалог: https://vk.com/im?sel={dialog_id}
+👤 Пользователь: {first_name} {last_name}
+Изначальный вопрос клиента: {initial_question}
+Сводка обсуждения: {dialog_summary}
+Предполагаемая причина: {reason_guess}
+🔗 Ссылка на диалог: {vk_dialog_link}
     """.strip()
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -101,32 +113,6 @@ def send_operator_notification(dialog_id, initial_question, dialog_summary, reas
         "parse_mode": "Markdown"
     }
     requests.post(url, data=data)
-# ============================
-# Функция подсчёта токенов
-# ============================
-def count_tokens(prompt):
-    """
-    Подсчитывает количество токенов в указанном тексте с помощью API Google Gemini.
-    """
-    api_key = os.environ.get("GEMINI_API_KEY")  # Используем переменную окружения
-    if not api_key:
-        print("Ошибка: Переменная окружения GEMINI_API_KEY не найдена.")
-        return 0
-
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:countTokens"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    data = {
-        "prompt": prompt
-    }
-    response = requests.post(url, headers=headers, json=data)
-    if response.status_code == 200:
-        return response.json().get("tokenCount", 0)
-    else:
-        print(f"Ошибка подсчёта токенов: {response.status_code} - {response.text}")
-        return 0
 
 
 # ==============================
@@ -174,16 +160,15 @@ def upload_log_to_yandex_disk(log_file_path):
         else:
             print("Ошибка загрузки на Яндекс.Диск:", upload_resp.text)
 
+
 # ==============================
 # 3. СОХРАНЕНИЕ ДИАЛОГОВ В POSTGRES
 # ==============================
 def store_dialog_in_db(user_id, user_message, bot_message):
     """
-    Сохраняем каждую пару user_message + bot_message в базу PostgreSQL.
-    Предварительно создаём таблицу, если её нет.
+    Сохраняем каждую пару (user_message + bot_message) в базу PostgreSQL.
     """
     try:
-        # Подключение к базе через DATABASE_URL
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
 
@@ -197,39 +182,65 @@ def store_dialog_in_db(user_id, user_message, bot_message):
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        
+
         # Вставка записи
         cur.execute(
             """INSERT INTO dialogues (user_id, user_message, bot_message)
                VALUES (%s, %s, %s)""",
             (user_id, user_message, bot_message)
         )
-        
-        # Фиксация изменений
+
         conn.commit()
-        
-        # Закрытие курсора и соединения
         cur.close()
         conn.close()
     except Exception as e:
         print("Ошибка при сохранении диалога в БД:", e)
 
+
+def load_dialog_from_db(user_id):
+    """
+    Подгрузить из БД всю историю сообщений для указанного user_id.
+    Возвращает список словарей вида: [{"user": "...", "bot": "..."}, ...].
+    """
+    dialog_history = []
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        # Берём все сообщения по user_id, сортируем по id (или по created_at)
+        cur.execute("""
+            SELECT user_message, bot_message 
+            FROM dialogues
+            WHERE user_id = %s
+            ORDER BY id ASC
+        """, (user_id,))
+
+        rows = cur.fetchall()
+        for row in rows:
+            user_m = row[0]
+            bot_m  = row[1]
+            dialog_history.append({"user": user_m, "bot": bot_m})
+
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"Ошибка при загрузке диалога из БД для user_id={user_id}:", e)
+
+    return dialog_history
+
+
 # ==============================
 # 4. ЛОГИРОВАНИЕ
 # ==============================
-def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id, input_tokens=0, output_tokens=0):
+def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id):
     """
-    Логируем в файл + отправляем пару в PostgreSQL (без токенов в базе данных).
+    Логируем в локальный файл + отправляем пару (user_message, bot_message) в PostgreSQL.
+    Без подсчёта токенов.
     """
-    # Сохраняем в базу данных только вопросы и ответы
+    # Сохраняем в базу данных
     store_dialog_in_db(user_id, user_question, bot_response)
 
     current_time = datetime.utcnow() + timedelta(hours=6)
     formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
-
-    # Определяем имя и фамилию пользователя для логирования
-    first_name, last_name = user_names.get(user_id, ("Неизвестно", ""))
-    user_identifier = f"{first_name} {last_name}".strip() if first_name and last_name else f"user_id={user_id}"
 
     # Определяем лог-файл для пользователя
     if user_id in user_log_files:
@@ -239,18 +250,16 @@ def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, u
 
     # Пишем данные в лог-файл
     with open(local_log_file, "a", encoding="utf-8") as log_file:
-        log_file.write(f"[{formatted_time}] {user_identifier}, Пользователь: {user_question}\n")
+        log_file.write(f"[{formatted_time}] user_id={user_id}, Пользователь: {user_question}\n")
         if relevant_titles and relevant_answers:
             for title, answer in zip(relevant_titles, relevant_answers):
                 log_file.write(f"[{formatted_time}] Найдено в базе знаний: {title} -> {answer}\n")
-        log_file.write(f"[{formatted_time}] Модель: {bot_response}\n")
-        log_file.write(f"[{formatted_time}] Входящие токены: {input_tokens}, Исходящие токены: {output_tokens}\n\n")
+        log_file.write(f"[{formatted_time}] Модель: {bot_response}\n\n")
 
     print(f"Содержимое лога:\n{open(local_log_file, 'r', encoding='utf-8').read()}")
 
     # Загружаем лог-файл в Яндекс.Диск
     upload_log_to_yandex_disk(local_log_file)
-
 
 
 # ==============================
@@ -287,14 +296,18 @@ def find_relevant_titles_with_gemini(user_question):
             return []
     return []
 
+
 def generate_response(user_question, dialog_history, custom_prompt, relevant_answers=None):
+    # Формируем историю в текстовом виде
     history_text = "\n".join([
-        f"Пользователь: {turn.get('user', '')}"
-        if 'user' in turn else f"Оператор: {turn.get('operator', '')}"
+        f"Пользователь: {turn.get('user','Неизвестно')}\nМодель: {turn.get('bot','Нет ответа')}"
         for turn in dialog_history
     ])
 
-    knowledge_hint = f"Подсказки из базы знаний: {relevant_answers}" if relevant_answers else ""
+    knowledge_hint = (
+        f"Подсказки из базы знаний: {relevant_answers}" 
+        if relevant_answers else ""
+    )
 
     full_prompt = (
         f"{custom_prompt}\n\n"
@@ -306,30 +319,22 @@ def generate_response(user_question, dialog_history, custom_prompt, relevant_ans
     data = {
         "contents": [{"parts": [{"text": full_prompt}]}]
     }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {os.environ['GEMINI_API_KEY']}"
-    }
+    headers = {"Content-Type": "application/json"}
 
     for attempt in range(5):
-        resp = requests.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-            headers=headers,
-            json=data
-        )
+        resp = requests.post(gemini_url, headers=headers, json=data)
         if resp.status_code == 200:
             try:
                 result = resp.json()
-                model_response = result['candidates'][0]['content']['parts'][0]['text']
-                usage_metadata = result.get("usage_metadata", {})
-                return model_response, usage_metadata
+                return result['candidates'][0]['content']['parts'][0]['text']
             except KeyError:
-                return "Извините, произошла ошибка при обработке ответа модели.", {}
+                return "Извините, произошла ошибка при обработке ответа модели."
         elif resp.status_code == 500:
             time.sleep(10)
         else:
-            return f"Ошибка: {resp.status_code}. {resp.text}", {}
-    return "Извините, я сейчас не могу ответить. Попробуйте позже.", {}
+            return f"Ошибка: {resp.status_code}. {resp.text}"
+    return "Извините, я сейчас не могу ответить. Попробуйте позже."
+
 
 def generate_summary_and_reason(dialog_history):
     history_text = " | ".join([
@@ -355,7 +360,7 @@ def generate_summary_and_reason(dialog_history):
                 result = resp.json()
                 output = result['candidates'][0]['content']['parts'][0]['text'].split("\n", 1)
                 dialog_summary = output[0].strip() if len(output) > 0 else "Сводка не сформирована"
-                reason_guess = output[1].strip() if len(output) > 1 else "Причина не определена"
+                reason_guess   = output[1].strip() if len(output) > 1 else "Причина не определена"
                 return dialog_summary, reason_guess
             except (KeyError, IndexError):
                 return "Сводка не сформирована", "Причина не определена"
@@ -364,6 +369,7 @@ def generate_summary_and_reason(dialog_history):
         else:
             return "Ошибка API", "Ошибка API"
     return "Не удалось связаться с сервисом", "Не удалось связаться с сервисом"
+
 
 # ==============================
 # 6. 30-секундная задержка и буфер сообщений
@@ -378,6 +384,7 @@ DELAY_SECONDS = 30
 # 7. ПАУЗА ДЛЯ КОНКРЕТНОГО ПОЛЬЗОВАТЕЛЯ
 # ==============================
 paused_users = set()
+
 
 def handle_new_message(user_id, text, vk, is_outgoing=False):
     lower_text = text.lower()
@@ -403,48 +410,61 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
             paused_users.discard(user_id)
         return
 
-    # 1. Инициализируем историю
+    # 1. Если пользователя ещё нет в диалоге, подгружаем историю из БД
     if user_id not in dialog_history_dict:
-        dialog_history_dict[user_id] = []
+        existing_history = load_dialog_from_db(user_id)
+        dialog_history_dict[user_id] = existing_history
 
-    # 2. При первом сообщении пользователя достаём имя/фамилию
-    #    и формируем уникальный лог-файл для этого пользователя
-    if len(dialog_history_dict[user_id]) == 0:
+    dialog_history = dialog_history_dict[user_id]
+
+    # 2. При первом сообщении вообще (то есть если в БД и памяти пусто) получаем имя/фамилию
+    if len(dialog_history) == 0:
         user_info = vk.users.get(user_ids=user_id)
         first_name = user_info[0].get("first_name", "")
         last_name  = user_info[0].get("last_name", "")
         user_names[user_id] = (first_name, last_name)
 
         # Формируем отдельный log_file_path c именем/фамилией
-        # Пример: "dialog_2025-01-15_13-22-59_Ivan_Ivanov.txt"
         now_str = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
         custom_file_name = f"dialog_{now_str}_{first_name}_{last_name}.txt"
         custom_log_path  = os.path.join(logs_directory, custom_file_name)
         user_log_files[user_id] = custom_log_path
 
-    # 3. Логика уведомлений
-    if len(dialog_history_dict[user_id]) == 0:
-        # Только если первое сообщение и там нет слова "оператор"
+        # Уведомляем в Телеграм (если нет слова "оператор")
         if "оператор" not in lower_text:
-            send_telegram_notification(user_question=text, dialog_id=user_id)
-    elif "оператор" in lower_text:
-        # Если диалог не пустой, а пользователь написал "оператор"
-        send_telegram_notification(user_question=text, dialog_id=user_id)
+            send_telegram_notification(
+                user_question=text,
+                dialog_id=user_id,
+                first_name=first_name,
+                last_name=last_name
+            )
+    else:
+        # Если пользователь упомянул "оператор"
+        if "оператор" in lower_text:
+            # Получаем имя/фамилию из кеша, если есть
+            first_name, last_name = user_names.get(user_id, ("", ""))
+            send_telegram_notification(
+                user_question=text,
+                dialog_id=user_id,
+                first_name=first_name,
+                last_name=last_name
+            )
 
-    # 4. Проверяем паузу
+    # 3. Проверяем паузу
     if user_id in paused_users:
         return
 
-    # 5. Складываем тексты в буфер
+    # 4. Добавляем сообщение в буфер
     user_buffers.setdefault(user_id, []).append(text)
     last_questions[user_id] = text
 
-    # 6. Сбрасываем/перезапускаем таймер
+    # 5. Сбрасываем/перезапускаем таймер
     if user_id in user_timers:
         user_timers[user_id].cancel()
     timer = threading.Timer(DELAY_SECONDS, generate_and_send_response, args=(user_id, vk))
     user_timers[user_id] = timer
     timer.start()
+
 
 def generate_and_send_response(user_id, vk):
     if vk is None:
@@ -465,23 +485,29 @@ def generate_and_send_response(user_id, vk):
     relevant_titles = find_relevant_titles_with_gemini(combined_text)
     relevant_answers = [knowledge_base[t] for t in relevant_titles if t in knowledge_base]
 
-    # Подсчёт токенов на вход
-    input_token_count = count_tokens(combined_text)
-
     model_response = generate_response(combined_text, dialog_history, custom_prompt, relevant_answers)
 
-    # Подсчёт токенов на выход
-    output_token_count = count_tokens(model_response)
+    # Логируем
+    log_dialog(combined_text, model_response, relevant_titles, relevant_answers, user_id)
 
-    log_dialog(combined_text, model_response, relevant_titles, relevant_answers, user_id, input_token_count, output_token_count)
-
+    # Если пользователь написал "оператор" — отсылаем отдельное уведомление (подробное)
     if "оператор" in combined_text.lower():
         summary, reason = generate_summary_and_reason(dialog_history)
         initial_q = last_questions.get(user_id, "")
-        send_operator_notification(user_id, initial_q, summary, reason)
+        first_name, last_name = user_names.get(user_id, ("", ""))
+        send_operator_notification(
+            user_id,
+            initial_q,
+            summary,
+            reason,
+            first_name=first_name,
+            last_name=last_name
+        )
 
+    # Обновляем диалог в памяти
     dialog_history.append({"user": combined_text, "bot": model_response})
 
+    # Отправляем ответ в ВК
     vk.messages.send(
         user_id=user_id,
         message=model_response,
@@ -496,18 +522,16 @@ def main():
     vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
     vk = vk_session.get_api()
 
-# Запуск Flask-приложения для обработки Callback API
-app = Flask(__name__)
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Render предоставляет PORT
-    app.run(host="0.0.0.0", port=port)
+# Flask-приложение
+app = Flask(__name__)
 
 @app.route("/callback", methods=["POST"])
 def callback():
     data = request.json
 
     if data.get("type") == "confirmation":
+        # Возвращаем код подтверждения, чтобы ВК привязал Callback
         return VK_CONFIRMATION_TOKEN
 
     if VK_SECRET_KEY and data.get("secret") != VK_SECRET_KEY:
@@ -528,11 +552,13 @@ def callback():
 
     return "ok"
 
+
 def process_message(user_id, text):
     """
-    Логика обработки сообщений.
+    Логика обработки сообщений (пример, если бы нужно было).
     """
     send_message(user_id, f"Вы написали: {text}")
+
 
 def send_message(user_id, message):
     """
@@ -547,3 +573,8 @@ def send_message(user_id, message):
         "v": "5.131"
     }
     requests.post(url, params=params)
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)

@@ -61,7 +61,7 @@ user_log_files = {}
 # Лог-файл по умолчанию (используем, пока не знаем имени пользователя)
 log_file_path = os.path.join(
     logs_directory,
-    f"dialog_{datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')}.txt"
+    f"dialog_{datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')}_unknown_user.txt"
 )
 
 
@@ -232,7 +232,7 @@ def load_dialog_from_db(user_id):
 # ==============================
 # 4. ЛОГИРОВАНИЕ
 # ==============================
-def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id):
+def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id, full_name=""):
     """Логируем в локальный файл + отправляем пару (user_message, bot_message) в PostgreSQL.
     Без подсчёта токенов.
     """
@@ -250,7 +250,7 @@ def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, u
 
     # Пишем данные в лог-файл
     with open(local_log_file, "a", encoding="utf-8") as log_file:
-        log_file.write(f"[{formatted_time}] user_id={user_id}, Пользователь: {user_question}\n")
+        log_file.write(f"[{formatted_time}] {full_name}: {user_question}\n")
         if relevant_titles and relevant_answers:
             for title, answer in zip(relevant_titles, relevant_answers):
                 log_file.write(f"[{formatted_time}] Найдено в базе знаний: {title} -> {answer}\n")
@@ -520,7 +520,7 @@ def generate_and_send_response(user_id, vk):
     model_response = generate_response(combined_text, dialog_history, custom_prompt, relevant_answers)
 
     # Логируем
-    log_dialog(combined_text, model_response, relevant_titles, relevant_answers, user_id)
+    log_dialog(combined_text, model_response, relevant_titles, relevant_answers, user_id, full_name=full_name)
 
     # Если пользователь написал "оператор" — отсылаем отдельное уведомление (подробное)
     if "оператор" in combined_text.lower():

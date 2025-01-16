@@ -392,13 +392,17 @@ def is_user_paused(full_name):
     try:
         response = requests.get(f"https://telegram-bot-k2h1.onrender.com/is_paused/{full_name_encoded}", timeout=5)
         if response.status_code == 200:
-            return response.json().get("paused", False)
+            paused = response.json().get("paused", False)
+            if not paused:
+                print(f"Пользователь {full_name} не на паузе.")
+            return paused
         else:
             print(f"Ошибка API: {response.status_code}, {response.text}")
             return False
     except requests.exceptions.RequestException as e:
         print(f"Ошибка подключения к Telegram API: {e}")
         return False
+
 
 
 

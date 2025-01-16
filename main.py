@@ -395,6 +395,8 @@ def is_user_paused(full_name):
             paused = response.json().get("paused", False)
             if not paused:
                 print(f"Пользователь {full_name} не на паузе.")
+            else:
+                print(f"Пользователь {full_name} находится на паузе.")
             return paused
         else:
             print(f"Ошибка API: {response.status_code}, {response.text}")
@@ -467,14 +469,28 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     else:
         # Если пользователь упомянул "оператор"
         if "оператор" in lower_text:
-            # Получаем имя/фамилию из кеша, если есть
-            first_name, last_name = user_names.get(user_id, ("", ""))
-            send_telegram_notification(
-                user_question=text,
-                dialog_id=user_id,
-                first_name=first_name,
-                last_name=last_name
-            )
+            # Проверяем, является ли это первое сообщение в диалоге
+            if len(dialog_history) == 0:
+                first_name, last_name = user_names.get(user_id, ("", ""))
+                send_telegram_notification(
+                    user_question=text,
+                    dialog_id=user_id,
+                    first_name=first_name,
+                    last_name=last_name
+                )
+            else:
+                # Отправляем уведомление в Телеграм с детализированным содержимым
+                summary, reason = generate_summary_and_reason(dialog_history)
+                initial_q = last_questions.get(user_id, "")
+                first_name, last_name = user_names.get(user_id, ("", ""))
+                send_operator_notification(
+                    user_id,
+                    initial_q,
+                    summary,
+                    reason,
+                    first_name=first_name,
+                    last_name=last_name
+                )
 
     # 3. Проверяем, находится ли пользователь в paused_names
     if is_user_paused(full_name):

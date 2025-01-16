@@ -548,6 +548,42 @@ def main():
 # Flask-приложение
 app = Flask(__name__)
 
+@app.route("/clear_context/<full_name>", methods=["POST"])
+def clear_context(full_name):
+    """
+    Удаляет контекст пользователя из базы данных и локального кеша.
+    """
+    user_id = None
+
+    # Найти user_id по имени и фамилии
+    for uid, (first, last) in user_names.items():
+        if f"{first}_{last}" == full_name:
+            user_id = uid
+            break
+
+    if not user_id:
+        return "Пользователь не найден", 404
+
+    try:
+        # Удаление из базы данных
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM dialogues WHERE user_id = %s", (user_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        # Удаление из кеша
+        dialog_history_dict.pop(user_id, None)
+        user_buffers.pop(user_id, None)
+        user_timers.pop(user_id, None)
+        last_questions.pop(user_id, None)
+
+        return "Контекст успешно очищен", 200
+    except Exception as e:
+        print(f"Ошибка при очистке контекста для {full_name}: {e}")
+        return "Ошибка сервера", 500
+
 @app.route("/callback", methods=["POST"])
 def callback():
     data = request.json

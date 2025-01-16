@@ -387,23 +387,19 @@ DELAY_SECONDS = 30
 
 # Проверка по API паузы для конкретного пользователя
 def is_user_paused(full_name):
-    full_name_encoded = quote(full_name)
-    print(f"Проверка паузы для пользователя: {full_name_encoded}")
     try:
-        response = requests.get(f"https://telegram-bot-k2h1.onrender.com/is_paused/{full_name_encoded}", timeout=5)
+        response = requests.get(f"https://telegram-bot-k2h1.onrender.com/is_paused/{full_name}", timeout=5)
         if response.status_code == 200:
-            paused = response.json().get("paused", False)
-            if not paused:
-                print(f"Пользователь {full_name} не на паузе.")
-            else:
-                print(f"Пользователь {full_name} находится на паузе.")
-            return paused
+            paused_status = response.json().get("paused", False)
+            print(f"Статус паузы для {full_name}: {paused_status}")
+            return paused_status
         else:
             print(f"Ошибка API: {response.status_code}, {response.text}")
             return False
     except requests.exceptions.RequestException as e:
         print(f"Ошибка подключения к Telegram API: {e}")
         return False
+
 
 
 

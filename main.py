@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import threading
 import vk_api
 from flask import Flask, request, jsonify
+from urllib.parse import quote
 
 # ==============================
 # Читаем переменные окружения (секретные данные)
@@ -383,16 +384,23 @@ DELAY_SECONDS = 30
 # ==============================
 # 7. ПАУЗА ДЛЯ КОНКРЕТНОГО ПОЛЬЗОВАТЕЛЯ
 # ==============================
+
+# Проверка по API паузы для конкретного пользователя
 def is_user_paused(full_name):
-    """
-    Проверяет через API Телеграм-бота, находится ли пользователь на паузе.
-    """
+    full_name_encoded = quote(full_name)
+    print(f"Проверка паузы для пользователя: {full_name_encoded}")
     try:
-        response = requests.get(f"https://telegram-bot-k2hl.onrender.com/is_paused/{full_name}")
-        return response.json().get("paused", False)
-    except Exception as e:
-        print(f"Ошибка при запросе паузы: {e}")
+        response = requests.get(f"https://telegram-bot-k2h1.onrender.com/is_paused/{full_name_encoded}", timeout=5)
+        if response.status_code == 200:
+            return response.json().get("paused", False)
+        else:
+            print(f"Ошибка API: {response.status_code}, {response.text}")
+            return False
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка подключения к Telegram API: {e}")
         return False
+
+
 
 paused_users = set()
 

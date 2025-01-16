@@ -2,7 +2,7 @@ import os
 import time
 import json
 import requests
-import psycopg2  # <-- для работы с PostgreSQL
+import psycopg2
 from datetime import datetime, timedelta
 import threading
 import vk_api
@@ -233,8 +233,7 @@ def load_dialog_from_db(user_id):
 # 4. ЛОГИРОВАНИЕ
 # ==============================
 def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id):
-    """
-    Логируем в локальный файл + отправляем пару (user_message, bot_message) в PostgreSQL.
+    """Логируем в локальный файл + отправляем пару (user_message, bot_message) в PostgreSQL.
     Без подсчёта токенов.
     """
     # Сохраняем в базу данных
@@ -388,7 +387,7 @@ DELAY_SECONDS = 30
 # Проверка по API паузы для конкретного пользователя
 def is_user_paused(full_name):
     try:
-        response = requests.get(f"https://telegram-bot-k2h1.onrender.com/is_paused/{full_name}", timeout=5)
+        response = requests.get(f"https://telegram-bot-k2h1.onrender.com/is_paused/{quote(full_name)}", timeout=5) # Замените на свой URL
         if response.status_code == 200:
             paused_status = response.json().get("paused", False)
             print(f"Статус паузы для {full_name}: {paused_status}")
@@ -400,16 +399,13 @@ def is_user_paused(full_name):
         print(f"Ошибка подключения к Telegram API: {e}")
         return False
 
-
-paused_users = set()
-
 def handle_new_message(user_id, text, vk, is_outgoing=False):
     user_info = vk.users.get(user_ids=user_id)
     first_name = user_info[0].get("first_name", "")
     last_name = user_info[0].get("last_name", "")
     full_name = f"{first_name}_{last_name}"
     lower_text = text.lower()
-    
+
     # Если сообщение исходящее (оператор пишет боту)
     if is_outgoing:
         dialog_history = dialog_history_dict.setdefault(user_id, [])
@@ -424,11 +420,6 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
             op_log_path = log_file_path
         with open(op_log_path, "a", encoding="utf-8") as f:
             f.write(f"[{formatted_time}] user_id={user_id}, Оператор: {text}\n\n")
-
-        if "я поставил бота на паузу" in lower_text:
-            paused_users.add(user_id)
-        elif "бот снова будет отвечать" in lower_text:
-            paused_users.discard(user_id)
         return
 
     # 1. Если пользователя ещё нет в диалоге, подгружаем историю из БД
@@ -485,7 +476,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
                     last_name=last_name
                 )
 
-    # 3. Проверяем, находится ли пользователь в paused_names (через Telegram API)
+    # 3. Проверяем, находится ли пользователь в paused_names
     if is_user_paused(full_name):
         print(f"Пользователь {full_name} находится на паузе. Пропускаем сообщение.")
         return  # Не отвечаем пользователю
@@ -506,13 +497,18 @@ def generate_and_send_response(user_id, vk):
         print("Ошибка: объект vk не передан!")
         return
 
-    if user_id in paused_users:
-        user_buffers[user_id] = []
-        return
-
     msgs = user_buffers.get(user_id, [])
     if not msgs:
         return
+    
+    # Проверяем, находится ли пользователь в paused_names перед генерацией ответа
+    first_name, last_name = user_names.get(user_id, ("", ""))
+    full_name = f"{first_name}_{last_name}"
+    if is_user_paused(full_name):
+        print(f"Пользователь {full_name} находится на паузе. Пропускаем генерацию ответа.")
+        user_buffers[user_id] = []
+        return
+
     combined_text = "\n".join(msgs)
     user_buffers[user_id] = []
 
@@ -553,10 +549,6 @@ def generate_and_send_response(user_id, vk):
 # ==============================
 # 8. ОСНОВНОЙ ЦИКЛ
 # ==============================
-def main():
-    vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
-    vk = vk_session.get_api()
-
 
 # Flask-приложение
 app = Flask(__name__)
@@ -647,5 +639,7 @@ def send_message(user_id, message):
 
 
 if __name__ == "__main__":
+    vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
+    vk = vk_session.get_api()
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)

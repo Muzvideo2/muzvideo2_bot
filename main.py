@@ -384,13 +384,14 @@ DELAY_SECONDS = 30
 # 7. ПАУЗА ДЛЯ КОНКРЕТНОГО ПОЛЬЗОВАТЕЛЯ
 # ==============================
 
-# Проверка по API паузы для конкретного пользователя
 def is_user_paused(full_name):
     try:
-        response = requests.get(f"https://telegram-bot-k2h1.onrender.com/is_paused/{quote(full_name)}", timeout=5) # Замените на свой URL
+        # Приводим имя к нижнему регистру (на всякий случай)
+        full_name_lower = full_name.lower()
+        response = requests.get(f"https://telegram-bot-k2hl.onrender.com/is_paused/{quote(full_name_lower)}", timeout=5)
         if response.status_code == 200:
             paused_status = response.json().get("paused", False)
-            print(f"Статус паузы для {full_name}: {paused_status}")
+            print(f"Статус паузы для {full_name_lower}: {paused_status}") # Логируем имя в нижнем регистре
             return paused_status
         else:
             print(f"Ошибка API: {response.status_code}, {response.text}")

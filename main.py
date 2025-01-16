@@ -401,9 +401,6 @@ def is_user_paused(full_name):
         return False
 
 
-
-
-
 paused_users = set()
 
 def handle_new_message(user_id, text, vk, is_outgoing=False):
@@ -488,7 +485,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
                     last_name=last_name
                 )
 
-    # 3. Проверяем, находится ли пользователь в paused_names
+    # 3. Проверяем, находится ли пользователь в paused_names (через Telegram API)
     if is_user_paused(full_name):
         print(f"Пользователь {full_name} находится на паузе. Пропускаем сообщение.")
         return  # Не отвечаем пользователю

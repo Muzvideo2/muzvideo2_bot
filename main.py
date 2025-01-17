@@ -245,6 +245,14 @@ def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, u
     # Определяем лог-файл для пользователя
     if user_id in user_log_files:
         local_log_file = user_log_files[user_id]
+        if "unknown_user" in local_log_file and full_name:
+            first_name, last_name = full_name.split("_")  # Разделяем full_name
+            new_file_name = f"dialog_{formatted_time}_{first_name.lower()}_{last_name.lower()}.txt"
+            new_log_path = os.path.join(logs_directory, new_file_name)
+            os.rename(local_log_file, new_log_path) # Переименовываем старый файл
+            user_log_files[user_id] = new_log_path # Обновляем путь в словаре
+            local_log_file = new_log_path
+            print(f"Обновлен лог-файл для пользователя {user_id}: {local_log_file}")
     else:
         local_log_file = log_file_path
 

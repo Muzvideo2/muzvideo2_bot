@@ -305,6 +305,9 @@ def find_relevant_titles_with_gemini(user_question, dialog_history):
     }
     headers = {"Content-Type": "application/json"}
 
+    relevant_titles = []  # Инициализируем список заголовков
+    relevant_answers = [] # Инициализируем список ответов
+
     for attempt in range(5):
         resp = requests.post(gemini_url, headers=headers, json=data)
         if resp.status_code == 200:
@@ -312,21 +315,29 @@ def find_relevant_titles_with_gemini(user_question, dialog_history):
                 result = resp.json()
                 text_raw = result['candidates'][0]['content']['parts'][0]['text']
                 lines = text_raw.strip().split("\n")
-                return [ln.strip() for ln in lines if ln.strip()]
+                relevant_titles = [ln.strip() for ln in lines if ln.strip()]
+
+                # Получаем ответы для найденных заголовков
+                for title in relevant_titles:
+                    if title in knowledge_base:
+                        relevant_answers.append(knowledge_base[title])
+
+                return relevant_titles, relevant_answers  # Возвращаем заголовки и ответы
             except KeyError:
-                return []
+                return [], [] # Возвращаем пустые списки
         elif resp.status_code == 500:
             time.sleep(10)
         else:
-            return []
-    return []
+            return [], [] # Возвращаем пустые списки
+    return [], [] # Возвращаем пустые списки
 
 
 def generate_response(user_question, dialog_history, custom_prompt, relevant_answers=None):
     # Формируем историю в текстовом виде
     history_text = "\n".join([
-        f"Пользователь: {turn.get('user','Неизвестно')}\nМодель: {turn.get('bot','Нет ответа')}"
-        for turn in dialog_history
+    f"Пользователь: {turn.get('user','Неизвестно')}\nМодель: {turn.get('bot','Нет ответа')}"
+    for turn in dialog_history
+    if 'user' in turn or 'bot' in turn  # Исключаем реплики оператора
     ])
 
     knowledge_hint = (
@@ -340,6 +351,9 @@ def generate_response(user_question, dialog_history, custom_prompt, relevant_ans
         f"{knowledge_hint}\n\n"
         f"Пользователь: {user_question}\nМодель:"
     )
+
+    print("История диалога, которая подаётся модели:")
+    print(history_text)
 
     data = {
         "contents": [{"parts": [{"text": full_prompt}]}]
@@ -538,9 +552,9 @@ def generate_and_send_response(user_id, vk):
     combined_text = "\n".join(msgs)
     user_buffers[user_id] = []
 
-    dialog_history = dialog_history_dict[user_id]
-    relevant_titles = find_relevant_titles_with_gemini(combined_text, dialog_history)
-    relevant_answers = [knowledge_base[t] for t in relevant_titles if t in knowledge_base]
+dialog_history = dialog_history_dict[user_id]
+    # Принимаем заголовки и ответы
+    relevant_titles, relevant_answers = find_relevant_titles_with_gemini(combined_text, dialog_history)
 
     model_response = generate_response(combined_text, dialog_history, custom_prompt, relevant_answers)
 

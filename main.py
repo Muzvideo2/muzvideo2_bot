@@ -12,12 +12,12 @@ from urllib.parse import quote
 # ==============================
 # Читаем переменные окружения (секретные данные)
 # ==============================
-TELEGRAM_TOKEN     = os.environ.get("TELEGRAM_TOKEN", "")
-ADMIN_CHAT_ID      = os.environ.get("ADMIN_CHAT_ID", "")
-GEMINI_API_KEY     = os.environ.get("GEMINI_API_KEY", "")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 VK_COMMUNITY_TOKEN = os.environ.get("VK_COMMUNITY_TOKEN", "")
-YANDEX_DISK_TOKEN  = os.environ.get("YANDEX_DISK_TOKEN", "")
-VK_SECRET_KEY      = os.environ.get("VK_SECRET_KEY", "")
+YANDEX_DISK_TOKEN = os.environ.get("YANDEX_DISK_TOKEN", "")
+VK_SECRET_KEY = os.environ.get("VK_SECRET_KEY", "")
 VK_CONFIRMATION_TOKEN = os.environ.get("VK_CONFIRMATION_TOKEN", "")
 
 # Параметры PostgreSQL
@@ -31,8 +31,8 @@ VK_COMMUNITY_ID = "48116621"  # <-- Поставьте реальный ID ва�
 # Пути к файлам
 # ==============================
 knowledge_base_path = "knowledge_base.json"
-prompt_path         = "prompt.txt"
-logs_directory      = "dialog_logs"
+prompt_path = "prompt.txt"
+logs_directory = "dialog_logs"
 
 # ==============================
 # Прочитаем базу знаний и промпт
@@ -218,7 +218,7 @@ def load_dialog_from_db(user_id):
         rows = cur.fetchall()
         for row in rows:
             user_m = row[0]
-            bot_m  = row[1]
+            bot_m = row[1]
             dialog_history.append({"user": user_m, "bot": bot_m})
 
         cur.close()
@@ -233,7 +233,8 @@ def load_dialog_from_db(user_id):
 # 4. ЛОГИРОВАНИЕ
 # ==============================
 def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id, full_name=""):
-    """Логируем в локальный файл + отправляем пару (user_message, bot_message) в PostgreSQL.
+    """
+    Логируем в локальный файл + отправляем пару (user_message, bot_message) в PostgreSQL.
     Без подсчёта токенов.
     """
     # Сохраняем в базу данных
@@ -245,28 +246,23 @@ def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, u
     # Определяем лог-файл для пользователя
     if user_id in user_log_files:
         local_log_file = user_log_files[user_id]
+        # Если full_name передан и лог-файл содержит "unknown_user", обновляем имя файла
         if "unknown_user" in local_log_file and full_name:
-            first_name, last_name = full_name.split("_")  # Разделяем full_name
+            first_name, last_name = full_name.split("_")
             new_file_name = f"dialog_{formatted_time}_{first_name.lower()}_{last_name.lower()}.txt"
             new_log_path = os.path.join(logs_directory, new_file_name)
-            os.rename(local_log_file, new_log_path) # Переименовываем старый файл
-            user_log_files[user_id] = new_log_path # Обновляем путь в словаре
+            os.rename(local_log_file, new_log_path)
+            user_log_files[user_id] = new_log_path
             local_log_file = new_log_path
-            print(f"Обновлен лог-файл для пользователя {user_id}: {local_log_file}")
     else:
         local_log_file = log_file_path
 
     # Пишем данные в лог-файл
     with open(local_log_file, "a", encoding="utf-8") as log_file:
         log_file.write(f"[{formatted_time}] {full_name.lower()}: {user_question}\n")
-
-        # ИЗМЕНЁННЫЙ БЛОК: Запись найденных подсказок
         if relevant_titles and relevant_answers:
-            log_file.write(f"### Найденные подсказки из базы знаний:\n")
             for title, answer in zip(relevant_titles, relevant_answers):
-                log_file.write(f"**Вопрос:** {title}\n")
-                log_file.write(f"**Ответ:** {answer}\n\n")
-
+                log_file.write(f"[{formatted_time}] Найдено в базе знаний: {title} -> {answer}\n")
         log_file.write(f"[{formatted_time}] Модель: {bot_response}\n\n")
 
     print(f"Содержимое лога:\n{open(local_log_file, 'r', encoding='utf-8').read()}")
@@ -278,35 +274,20 @@ def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, u
 # ==============================
 # 5. ИНТЕГРАЦИЯ С GEMINI
 # ==============================
-def find_relevant_titles_with_gemini(user_question, dialog_history):
+def find_relevant_titles_with_gemini(user_question):
     titles = list(knowledge_base.keys())
-
-    # Формируем историю в текстовом виде, включая реплики оператора.
-    # Ограничиваем историю последними 10 сообщениями.
-    history_text = "\n".join([
-        f"{'Пользователь' if 'user' in turn else ('Оператор' if 'operator' in turn else 'Модель')}: {turn.get('user', turn.get('bot', turn.get('operator', '')))}"
-        for turn in dialog_history[-10:]
-    ])
-
     prompt_text = f"""
-Найди три наиболее релевантных вопроса к последнему сообщению: "{user_question}".
-При поиске учти контекст переписки, отдавая наибольший вес последним сообщениям.
-Верни только сами вопросы, без пояснений и изменений.
-
-Контекст переписки (последние 10 сообщений):
-{history_text}
-
 Вот список вопросов-ключей:
 {', '.join(titles)}
+
+Найди три наиболее релевантных вопроса к запросу: "{user_question}".
+Верни только сами вопросы, без пояснений и изменений.
     """.strip()
 
     data = {
         "contents": [{"parts": [{"text": prompt_text}]}]
     }
     headers = {"Content-Type": "application/json"}
-
-    relevant_titles = []  # Инициализируем список заголовков
-    relevant_answers = [] # Инициализируем список ответов
 
     for attempt in range(5):
         resp = requests.post(gemini_url, headers=headers, json=data)
@@ -315,33 +296,25 @@ def find_relevant_titles_with_gemini(user_question, dialog_history):
                 result = resp.json()
                 text_raw = result['candidates'][0]['content']['parts'][0]['text']
                 lines = text_raw.strip().split("\n")
-                relevant_titles = [ln.strip() for ln in lines if ln.strip()]
-
-                # Получаем ответы для найденных заголовков
-                for title in relevant_titles:
-                    if title in knowledge_base:
-                        relevant_answers.append(knowledge_base[title])
-
-                return relevant_titles, relevant_answers  # Возвращаем заголовки и ответы
+                return [ln.strip() for ln in lines if ln.strip()]
             except KeyError:
-                return [], [] # Возвращаем пустые списки
+                return []
         elif resp.status_code == 500:
             time.sleep(10)
         else:
-            return [], [] # Возвращаем пустые списки
-    return [], [] # Возвращаем пустые списки
+            return []
+    return []
 
 
 def generate_response(user_question, dialog_history, custom_prompt, relevant_answers=None):
-    # Формируем историю в текстовом виде БЕЗ РЕПЛИК ОПЕРАТОРА
+    # Формируем историю в текстовом виде
     history_text = "\n".join([
-        f"Пользователь: {turn.get('user','Неизвестно')}" if 'user' in turn else f"Модель: {turn.get('bot','Нет ответа')}"
+        f"Пользователь: {turn.get('user','Неизвестно')}\nМодель: {turn.get('bot','Нет ответа')}"
         for turn in dialog_history
-        if 'user' in turn or 'bot' in turn  # Убрано лишнее условие
     ])
 
     knowledge_hint = (
-        f"Подсказки из базы знаний: {relevant_answers}" 
+        f"Подсказки из базы знаний: {relevant_answers}"
         if relevant_answers else ""
     )
 
@@ -351,9 +324,6 @@ def generate_response(user_question, dialog_history, custom_prompt, relevant_ans
         f"{knowledge_hint}\n\n"
         f"Пользователь: {user_question}\nМодель:"
     )
-
-    print("История диалога, которая подаётся модели:")
-    print(history_text)
 
     data = {
         "contents": [{"parts": [{"text": full_prompt}]}]
@@ -399,11 +369,11 @@ def generate_summary_and_reason(dialog_history):
                 result = resp.json()
                 output = result['candidates'][0]['content']['parts'][0]['text'].split("\n", 1)
                 dialog_summary = output[0].strip() if len(output) > 0 else "Сводка не сформирована"
-                reason_guess   = output[1].strip() if len(output) > 1 else "Причина не определена"
+                reason_guess = output[1].strip() if len(output) > 1 else "Причина не определена"
                 return dialog_summary, reason_guess
             except (KeyError, IndexError):
                 return "Сводка не сформирована", "Причина не определена"
-        elif resp.status_code == 500:
+        elif resp.status_code ==elif resp.status_code == 500:
             time.sleep(10)
         else:
             return "Ошибка API", "Ошибка API"
@@ -414,7 +384,7 @@ def generate_summary_and_reason(dialog_history):
 # 6. 30-секундная задержка и буфер сообщений
 # ==============================
 user_buffers = {}
-user_timers  = {}
+user_timers = {}
 last_questions = {}
 
 DELAY_SECONDS = 30
@@ -423,14 +393,13 @@ DELAY_SECONDS = 30
 # 7. ПАУЗА ДЛЯ КОНКРЕТНОГО ПОЛЬЗОВАТЕЛЯ
 # ==============================
 
+# Проверка по API паузы для конкретного пользователя
 def is_user_paused(full_name):
     try:
-        # Приводим имя к нижнему регистру (на всякий случай)
-        full_name_lower = full_name.lower()
-        response = requests.get(f"https://telegram-bot-k2hl.onrender.com/is_paused/{quote(full_name_lower)}", timeout=5)
+        response = requests.get(f"https://telegram-bot-k2hl.onrender.com/is_paused/{quote(full_name.lower())}", timeout=5)
         if response.status_code == 200:
             paused_status = response.json().get("paused", False)
-            print(f"Статус паузы для {full_name_lower}: {paused_status}") # Логируем имя в нижнем регистре
+            print(f"Статус паузы для {full_name.lower()}: {paused_status}")
             return paused_status
         else:
             print(f"Ошибка API: {response.status_code}, {response.text}")
@@ -473,13 +442,13 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     if len(dialog_history) == 0:
         user_info = vk.users.get(user_ids=user_id)
         first_name = user_info[0].get("first_name", "")
-        last_name  = user_info[0].get("last_name", "")
+        last_name = user_info[0].get("last_name", "")
         user_names[user_id] = (first_name, last_name)
 
         # Формируем отдельный log_file_path c именем/фамилией
         now_str = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
-        custom_file_name = f"dialog_{now_str}_{first_name}_{last_name}.txt"
-        custom_log_path  = os.path.join(logs_directory, custom_file_name)
+        custom_file_name = f"dialog_{now_str}_{first_name.lower()}_{last_name.lower()}.txt"
+        custom_log_path = os.path.join(logs_directory, custom_file_name)
         user_log_files[user_id] = custom_log_path
 
         # Уведомляем в Телеграм (если нет слова "оператор")
@@ -553,7 +522,7 @@ def generate_and_send_response(user_id, vk):
     user_buffers[user_id] = []
 
     dialog_history = dialog_history_dict[user_id]
-    # Принимаем заголовки и ответы (строка 557 - исправленная)
+    # Принимаем заголовки и ответы
     relevant_titles, relevant_answers = find_relevant_titles_with_gemini(combined_text, dialog_history)
 
     model_response = generate_response(combined_text, dialog_history, custom_prompt, relevant_answers)
@@ -584,7 +553,6 @@ def generate_and_send_response(user_id, vk):
         message=model_response,
         random_id=int(time.time() * 1000)
     )
-
 
 # ==============================
 # 8. ОСНОВНОЙ ЦИКЛ

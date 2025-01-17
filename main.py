@@ -540,7 +540,7 @@ def generate_and_send_response(user_id, vk):
     msgs = user_buffers.get(user_id, [])
     if not msgs:
         return
-    
+
     # Проверяем, находится ли пользователь в paused_names перед генерацией ответа
     first_name, last_name = user_names.get(user_id, ("", ""))
     full_name = f"{first_name}_{last_name}"
@@ -552,8 +552,8 @@ def generate_and_send_response(user_id, vk):
     combined_text = "\n".join(msgs)
     user_buffers[user_id] = []
 
-dialog_history = dialog_history_dict[user_id]
-    # Принимаем заголовки и ответы
+    dialog_history = dialog_history_dict[user_id]
+    # Принимаем заголовки и ответы (строка 557 - исправленная)
     relevant_titles, relevant_answers = find_relevant_titles_with_gemini(combined_text, dialog_history)
 
     model_response = generate_response(combined_text, dialog_history, custom_prompt, relevant_answers)

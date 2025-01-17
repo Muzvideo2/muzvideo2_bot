@@ -335,10 +335,10 @@ def find_relevant_titles_with_gemini(user_question, dialog_history):
 def generate_response(user_question, dialog_history, custom_prompt, relevant_answers=None):
     # Формируем историю в текстовом виде
     history_text = "\n".join([
-    f"Пользователь: {turn.get('user','Неизвестно')}\nМодель: {turn.get('bot','Нет ответа')}"
+    f"Пользователь: {turn.get('user','Неизвестно')}" if 'user' in turn else f"Модель: {turn.get('bot','Нет ответа')}"
     for turn in dialog_history
-    if 'user' in turn or 'bot' in turn  # Исключаем реплики оператора
-    ])
+    if ('user' in turn or 'bot' in turn) and (turn.get('user') or turn.get('bot'))
+])
 
     knowledge_hint = (
         f"Подсказки из базы знаний: {relevant_answers}" 

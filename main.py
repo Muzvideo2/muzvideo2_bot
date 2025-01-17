@@ -258,10 +258,15 @@ def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, u
 
     # Пишем данные в лог-файл
     with open(local_log_file, "a", encoding="utf-8") as log_file:
-        log_file.write(f"[{formatted_time}] {full_name}: {user_question}\n")
+        log_file.write(f"[{formatted_time}] {full_name.lower()}: {user_question}\n")
+
+        # ИЗМЕНЁННЫЙ БЛОК: Запись найденных подсказок
         if relevant_titles and relevant_answers:
+            log_file.write(f"### Найденные подсказки из базы знаний:\n")
             for title, answer in zip(relevant_titles, relevant_answers):
-                log_file.write(f"[{formatted_time}] Найдено в базе знаний: {title} -> {answer}\n")
+                log_file.write(f"**Вопрос:** {title}\n")
+                log_file.write(f"**Ответ:** {answer}\n\n")
+
         log_file.write(f"[{formatted_time}] Модель: {bot_response}\n\n")
 
     print(f"Содержимое лога:\n{open(local_log_file, 'r', encoding='utf-8').read()}")

@@ -273,14 +273,26 @@ def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, u
 # ==============================
 # 5. ИНТЕГРАЦИЯ С GEMINI
 # ==============================
-def find_relevant_titles_with_gemini(user_question):
+def find_relevant_titles_with_gemini(user_question, dialog_history):
     titles = list(knowledge_base.keys())
+
+    # Формируем историю в текстовом виде, включая реплики оператора.
+    # Ограничиваем историю последними 10 сообщениями.
+    history_text = "\n".join([
+        f"{'Пользователь' if 'user' in turn else ('Оператор' if 'operator' in turn else 'Модель')}: {turn.get('user', turn.get('bot', turn.get('operator', '')))}"
+        for turn in dialog_history[-10:]
+    ])
+
     prompt_text = f"""
+Найди три наиболее релевантных вопроса к последнему сообщению: "{user_question}".
+При поиске учти контекст переписки, отдавая наибольший вес последним сообщениям.
+Верни только сами вопросы, без пояснений и изменений.
+
+Контекст переписки (последние 10 сообщений):
+{history_text}
+
 Вот список вопросов-ключей:
 {', '.join(titles)}
-
-Найди три наиболее релевантных вопроса к запросу: "{user_question}".
-Верни только сами вопросы, без пояснений и изменений.
     """.strip()
 
     data = {

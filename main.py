@@ -597,8 +597,8 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     timer.start()
 
 def generate_and_send_response(user_id, vk):
-    global user_data_requested  # Объявляем, что используем глобальную переменную
-    
+    global user_data_requested
+
     if vk is None:
         print("Ошибка: объект vk не передан!")
         return
@@ -625,22 +625,31 @@ def generate_and_send_response(user_id, vk):
     if dialog_history:
         last_client_info = dialog_history[-1].get("client_info", "")
 
-    # Используем client_info из истории, если он есть и не ищем заново
-    if last_client_info:
-        client_data = last_client_info
-        logging.info(f"Пользователь {user_id}: используем client_info из истории: {client_data}")
-    elif user_id not in user_data_requested:
+    # Проверяем, есть ли в запросе емейл или телефон
+    email_regex = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+    emails = re.findall(email_regex, combined_text)
+    phone_regex = r"(?:\+7|7|8)?[\s\-]?\(?(\d{3})\)?[\s\-]?(\d{3})[\s\-]?(\d{2})[\s\-]?(\d{2})"
+    phones = re.findall(phone_regex, combined_text)
+
+    # Вызываем get_client_info, если есть емейл или телефон
+    if emails or phones:
         client_data = get_client_info(combined_text, user_id)
-        user_data_requested[user_id] = True  # Помечаем, что информация была запрошена
+        logging.info(f"Пользователь {user_id}: запрошена информация о клиенте из таблицы.")
+        user_data_requested[user_id] = True # Помечаем, что информация была запрошена
 
         # Логируем результат поиска
         if client_data:
             logging.info(f"Пользователь {user_id}: найдена информация о клиенте: {client_data}")
         else:
             logging.info(f"Пользователь {user_id}: информация о клиенте не найдена.")
+    elif last_client_info:
+        # Если нет емейла или телефона, но есть client_info в истории, используем его
+        client_data = last_client_info
+        logging.info(f"Пользователь {user_id}: используем client_info из истории: {client_data}")
     else:
-        client_data = ""  # Не запрашиваем данные повторно
-        logging.info(f"Пользователь {user_id}: информация о клиенте уже была запрошена ранее.")
+        # Если нет ни емейла, ни телефона, ни client_info в истории, не ищем
+        client_data = ""
+        logging.info(f"Пользователь {user_id}: нет данных для поиска информации о клиенте.")
 
     relevant_titles = find_relevant_titles_with_gemini(combined_text)
     relevant_answers = [knowledge_base[t] for t in relevant_titles if t in knowledge_base]

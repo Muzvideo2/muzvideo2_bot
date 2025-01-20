@@ -76,80 +76,91 @@ log_file_path = os.path.join(
 
 def get_client_info(user_question, user_id):
     """
-    Анализирует запрос пользователя на наличие email и номера телефона.
-    Если они найдены, ищет информацию о клиенте в excel файле clients.xlsx.
-    Возвращает строку с информацией о клиенте или сообщение об отсутствии данных.
-    Учитывает, что у клиента может быть несколько покупок.
+    Анализирует текст user_question на предмет email или номера телефона.
+    Если они найдены, ищет информацию о клиенте в Excel-файле "clients.xlsx".
+    Возвращает строку со всеми найденными данными или сообщает, что ничего не найдено.
+    Учитывает, что у клиента может быть несколько покупок (строк).
     """
-
-    client_info = ""
-
-    # Регулярное выражение для поиска email
+    
+    client_info = ""  # Очищаем перед каждым новым запросом
+    
+    # Рег. выражения для email и телефона
     email_regex = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
-    emails = re.findall(email_regex, user_question)
-
-    # Регулярное выражение для поиска номера телефона (учитываем разные варианты)
     phone_regex = r"(?:\+7|7|8)?[\s\-]?\(?(\d{3})\)?[\s\-]?(\d{3})[\s\-]?(\d{2})[\s\-]?(\d{2})"
+
+    # Ищем все email и телефоны в сообщении
+    emails = re.findall(email_regex, user_question)
     phones = re.findall(phone_regex, user_question)
 
-    # Пропускаем функцию, если нет емейла или номера телефона
-    if not emails and not phones:
-        return ""
+    logging.info(f"Пользователь {user_id}: Запрошен поиск в таблице.")
 
-    logging.info(f"Пользователь {user_id}: запросил информацию в таблице.")
-
-    # Загружаем excel файл
+    # Открываем Excel
     try:
         workbook = openpyxl.load_workbook("clients.xlsx")
-        sheet = workbook.active
+        sheet = workbook.active   # Или workbook["НазваниеЛиста"], если нужен конкретный лист
     except FileNotFoundError:
         logging.error("Файл clients.xlsx не найден.")
         return ""
 
-    # Ищем информацию по email
-    if emails:
-        for email in emails:
-            email_lower = email.lower()
-            logging.info(f"Пользователь {user_id}: ищем данные по емейлу {email_lower}.")
-            for row in sheet.iter_rows(min_col=5, max_col=5):  # Ищем только в столбце E (индекс 5)
-                cell = row[0]
-                if cell.value and email_lower == str(cell.value).lower():
-                    client_data = ", ".join([str(c.value) for c in row if c.value is not None])
-                    client_info += f"Данные по клиенту, найденные по емейлу {email_lower}: {client_data}\n"
-                    logging.info(f"Пользователь {user_id}: найдены данные по емейлу {email_lower}.")
-                    # Не выходим из цикла, продолжаем поиск
+    # --- Поиск по email ---
+    for email in emails:
+        email_lower = email.lower().strip()
+        logging.info(f"Пользователь {user_id}: Ищем данные по e-mail {email_lower}.")
+        
+        # Сделаем заголовок (для наглядности, если несколько емейлов)
+        client_info += f"\n=== Результат поиска по e-mail: {email_lower} ===\n"
+        email_found = False
 
-            if not client_info:
-                client_info += f"Данные по емейлу {email_lower} клиента не найдены\n"
-                logging.warning(f"Пользователь {user_id}: не найдены данные по емейлу {email_lower}.")
+        for row_index, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            # row — это кортеж вида (A, B, C, D, E, F, ...)
+            # Предположим, что E=4 (A=0,B=1,C=2,D=3,E=4,F=5).
+            # Если колонка E - это email, берём row[4], проверяем:
+            
+            # Пустая ячейка будет None, поэтому:
+            cell_value = (row[4] or "") if len(row) > 4 else ""
+            cell_value_lower = str(cell_value).lower().strip()
 
-    # Ищем информацию по номеру телефона
-    if phones:
-        for phone in phones:
-            # Удаляем все, кроме цифр из найденного номера
-            digits_only = "".join(filter(str.isdigit, "".join(phone)))
+            # Дополнительно можно вывести отладку, чтобы видеть, что читаем
+            # logging.debug(f"Строка {row_index}: {row}")  
+            # (закомментируйте или включите по необходимости)
 
-            logging.info(f"Пользователь {user_id}: ищем данные по телефону (только цифры): {digits_only}.")
+            if cell_value_lower == email_lower:
+                # Формируем строку со всеми данными, убирая None
+                client_data = ", ".join(str(x) for x in row if x is not None)
+                client_info += f"- {client_data}\n"
+                email_found = True
+        
+        if not email_found:
+            client_info += "  Ничего не найдено\n"
+            logging.warning(f"Пользователь {user_id}: Не найдены данные по e-mail {email_lower}.")
 
-            for row in sheet.iter_rows(min_col=6, max_col=6): # Ищем только в столбце F (индекс 6)
-                cell = row[0]
-                if cell.value:
-                    cell_value_digits = str(cell.value)
+    # --- Поиск по телефону ---
+    for phone_tuple in phones:
+        # phone_tuple — это кортеж из рег. выражения (три группы по 3,2,2 цифры)
+        # Например, ("905", "787", "89", "61")
+        digits_only = "".join(filter(str.isdigit, "".join(phone_tuple)))
+        logging.info(f"Пользователь {user_id}: Ищем данные по телефону (цифры): {digits_only}.")
 
-                    # Сравниваем последние 7 цифр (без кода страны и оператора)
-                    if digits_only[-10:] == cell_value_digits[-10:]:
-                        client_data = ", ".join([str(c.value) for c in row if c.value is not None])
-                        client_info += f"Данные по клиенту, найденные по номеру телефона: {client_data}\n"
-                        logging.info(f"Пользователь {user_id}: найдены данные по телефону {digits_only}.")
-                        # Не выходим из цикла, продолжаем поиск
+        client_info += f"\n=== Результат поиска по телефону: {digits_only} ===\n"
+        phone_found = False
 
-            if not client_info and not emails:
-                client_info += f"Данные по телефону клиента не найдены\n"
-                logging.warning(f"Пользователь {user_id}: не найдены данные по телефону.")
-            elif "Данные по емейлу" not in client_info and "Данные по телефону" in client_info:
-                client_info = client_info
+        for row_index, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+            # Аналогично проверяем столбец F = row[5]
+            phone_cell = (row[5] or "") if len(row) > 5 else ""
+            phone_digits = "".join(filter(str.isdigit, str(phone_cell)))
 
-    return client_info
+            # Сравниваем последние 10 цифр
+            if phone_digits.endswith(digits_only[-10:]):
+                client_data = ", ".join(str(x) for x in row if x is not None)
+                client_info += f"- {client_data}\n"
+                phone_found = True
+        
+        if not phone_found:
+            client_info += "  Ничего не найдено\n"
+            logging.warning(f"Пользователь {user_id}: Не найдены данные по телефону {digits_only}.")
+
+    # Если в тексте не было ни email, ни телефона, client_info останется пустым
+    return client_info.strip()
 
 # ==============================
 # 2. ФУНКЦИИ УВЕДОМЛЕНИЙ В ТЕЛЕГРАМ

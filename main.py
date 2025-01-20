@@ -595,6 +595,8 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     timer.start()
 
 def generate_and_send_response(user_id, vk):
+    global user_data_requested  # Объявляем, что используем глобальную переменную
+    
     if vk is None:
         print("Ошибка: объект vk не передан!")
         return

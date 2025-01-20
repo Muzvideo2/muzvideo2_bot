@@ -33,8 +33,6 @@ VK_COMMUNITY_ID = "48116621"  # <-- Поставьте реальный ID ва�
 # Настройка логгера
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-user_data_requested = {}  # Определение ГЛОБАЛЬНОЙ переменной
-
 # ==============================
 # Пути к файлам
 # ==============================
@@ -139,8 +137,8 @@ def get_client_info(user_question, user_id):
                     cell_value_digits = str(cell.value)
 
                     # Сравниваем последние 7 цифр (без кода страны и оператора)
-                    if digits_only[-7:] == cell_value_digits[-7:]:
-                        client_data = ", ".join([str(c.value) for c in row])
+                    if digits_only[-10:] == cell_value_digits[-10:]:
+                        client_data = ", ".join([str(c.value) for c in row if c.value is not None])
                         client_info += f"Данные по клиенту, найденные по номеру телефона: {client_data}\n"
                         logging.info(f"Пользователь {user_id}: найдены данные по телефону {digits_only}.")
                         # Не выходим из цикла, продолжаем поиск
@@ -597,7 +595,6 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     timer.start()
 
 def generate_and_send_response(user_id, vk):
-    global user_data_requested
 
     if vk is None:
         print("Ошибка: объект vk не передан!")
@@ -635,21 +632,17 @@ def generate_and_send_response(user_id, vk):
     if emails or phones:
         client_data = get_client_info(combined_text, user_id)
         logging.info(f"Пользователь {user_id}: запрошена информация о клиенте из таблицы.")
-        user_data_requested[user_id] = True # Помечаем, что информация была запрошена
 
         # Логируем результат поиска
         if client_data:
             logging.info(f"Пользователь {user_id}: найдена информация о клиенте: {client_data}")
         else:
             logging.info(f"Пользователь {user_id}: информация о клиенте не найдена.")
-    elif last_client_info:
-        # Если нет емейла или телефона, но есть client_info в истории, используем его
-        client_data = last_client_info
-        logging.info(f"Пользователь {user_id}: используем client_info из истории: {client_data}")
+
     else:
-        # Если нет ни емейла, ни телефона, ни client_info в истории, не ищем
+        # Если нет ни емейла, ни телефона, не ищем
         client_data = ""
-        logging.info(f"Пользователь {user_id}: нет данных для поиска информации о клиенте.")
+        logging.info(f"Пользователь {user_id}: нет емейла или телефона в запросе.")
 
     relevant_titles = find_relevant_titles_with_gemini(combined_text)
     relevant_answers = [knowledge_base[t] for t in relevant_titles if t in knowledge_base]

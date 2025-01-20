@@ -116,7 +116,7 @@ def get_client_info(user_question, user_id):
             for row in sheet.iter_rows(min_col=5, max_col=5):  # Ищем только в столбце E (индекс 5)
                 cell = row[0]
                 if cell.value and email_lower == str(cell.value).lower():
-                    client_data = ", ".join([str(c.value) for c in row])
+                    client_data = ", ".join([str(c.value) for c in row if c.value is not None])
                     client_info += f"Данные по клиенту, найденные по емейлу {email_lower}: {client_data}\n"
                     logging.info(f"Пользователь {user_id}: найдены данные по емейлу {email_lower}.")
                     # Не выходим из цикла, продолжаем поиск

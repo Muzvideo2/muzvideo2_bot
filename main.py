@@ -162,6 +162,41 @@ def get_client_info(user_question, user_id):
     # Если в тексте не было ни email, ни телефона, client_info останется пустым
     return client_info.strip()
 
+# =======================================
+# ФУНКЦИЯ ЗАПРОСА ИМЕНИ КЛИЕНТА ВКОНТАКТЕ
+# =======================================
+
+def get_vk_user_full_name(user_id):
+    """
+    Получает имя и фамилию пользователя ВКонтакте по user_id через API.
+    """
+    if user_id in user_names:
+        logging.info(f"Пользователь {user_id} уже есть в кеше, имя: {user_names[user_id]}")
+        return user_names[user_id]
+
+    vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
+    vk = vk_session.get_api()
+
+    try:
+        response = vk.users.get(user_ids=user_id, fields="first_name,last_name")
+        if response and isinstance(response, list) and len(response) > 0:
+            user_data = response[0]
+            if "deactivated" in user_data:
+                logging.warning(f"Пользователь {user_id} удален или заблокирован.")
+                return "", ""
+
+            first_name = user_data.get("first_name", "")
+            last_name = user_data.get("last_name", "")
+            user_names[user_id] = (first_name, last_name)  # Кешируем имя и фамилию
+            return first_name, last_name
+    except vk_api.ApiError as e:
+        logging.error(f"Ошибка VK API при получении имени пользователя {user_id}: {e}")
+    except Exception as e:
+        logging.error(f"Неизвестная ошибка при получении имени пользователя {user_id}: {e}")
+
+    return "", ""  # Если API не отвечает или имя не найдено — возвращаем пустые строки
+
+
 # ==============================
 # 2. ФУНКЦИИ УВЕДОМЛЕНИЙ В ТЕЛЕГРАМ
 # ==============================
@@ -399,7 +434,8 @@ def find_relevant_titles_with_gemini(user_question):
     return []
 
 
-def generate_response(user_question, client_data, dialog_history, custom_prompt, relevant_answers=None):
+def generate_response(user_question, client_data, dialog_history, custom_prompt, first_name, relevant_answers=None):
+
     # Формируем историю в текстовом виде
     history_text = "\n".join([
         f"Пользователь: {turn.get('user','Неизвестно')}\nМодель: {turn.get('bot','Нет ответа')}"
@@ -421,9 +457,18 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
     full_prompt = (
         f"{custom_prompt}\n\n"
         f"Контекст диалога:\n{history_text}\n\n"
-        f"{client_info_history}"  # Добавляем информацию о клиенте в контекст
+        f"{client_info_history}"
         f"{knowledge_hint}\n\n"
-        f"Пользователь: {user_question}\n"
+        f"Текущий запрос пользователя: {user_question}\n"
+        f"Информация о клиенте: {client_data}\n"
+        f"Модель:"
+    ) if not first_name else (
+        f"{custom_prompt}\n\n"
+        f"Контекст диалога:\n{history_text}\n\n"
+        f"{client_info_history}"  # Добавляем информацию о клиенте в контекст
+        f"{knowledge_hint}\n\n" # Вставляем подсказки из базы знаний
+        f"Обращайся к пользователю по имени: {first_name}\n"
+        f"Текущий запрос пользователя: {user_question}\n"
         f"Информация о клиенте: {client_data}\n" # Чтобы модель "помнила" о недавнем запросе в БД
         f"Модель:"
     )
@@ -516,10 +561,10 @@ def is_user_paused(full_name):
         return False
 
 def handle_new_message(user_id, text, vk, is_outgoing=False):
-    user_info = vk.users.get(user_ids=user_id)
-    first_name = user_info[0].get("first_name", "")
-    last_name = user_info[0].get("last_name", "")
+
+    first_name, last_name = get_vk_user_full_name(user_id)
     full_name = f"{first_name}_{last_name}"
+
     lower_text = text.lower()
 
     # Если сообщение исходящее (оператор пишет боту)
@@ -547,9 +592,6 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
 
     # 2. При первом сообщении вообще (то есть если в БД и памяти пусто) получаем имя/фамилию
     if len(dialog_history) == 0:
-        user_info = vk.users.get(user_ids=user_id)
-        first_name = user_info[0].get("first_name", "")
-        last_name  = user_info[0].get("last_name", "")
         user_names[user_id] = (first_name, last_name)
 
         # Формируем отдельный log_file_path c именем/фамилией
@@ -572,6 +614,8 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
             # Проверяем, является ли это первое сообщение в диалоге
             if len(dialog_history) == 0:
                 first_name, last_name = user_names.get(user_id, ("", ""))
+                first_name = first_name or ""
+                last_name = last_name or ""
                 send_telegram_notification(
                     user_question=text,
                     dialog_id=user_id,
@@ -583,6 +627,8 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
                 summary, reason = generate_summary_and_reason(dialog_history)
                 initial_q = last_questions.get(user_id, "")
                 first_name, last_name = user_names.get(user_id, ("", ""))
+                first_name = first_name or ""
+                last_name = last_name or ""
                 send_operator_notification(
                     user_id,
                     initial_q,
@@ -610,6 +656,8 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
 
 def generate_and_send_response(user_id, vk):
 
+    first_name, last_name = get_vk_user_full_name(user_id)
+
     if vk is None:
         print("Ошибка: объект vk не передан!")
         return
@@ -619,7 +667,7 @@ def generate_and_send_response(user_id, vk):
         return
 
     # Проверяем, находится ли пользователь в paused_names перед генерацией ответа
-    first_name, last_name = user_names.get(user_id, ("", ""))
+
     full_name = f"{first_name}_{last_name}"
     if is_user_paused(full_name):
         print(f"Пользователь {full_name} находится на паузе. Пропускаем генерацию ответа.")
@@ -662,7 +710,7 @@ def generate_and_send_response(user_id, vk):
     relevant_answers = [knowledge_base[t] for t in relevant_titles if t in knowledge_base]
 
     # Добавляем client_data в запрос модели
-    model_response = generate_response(combined_text, client_data, dialog_history, custom_prompt, relevant_answers)
+    model_response = generate_response(combined_text, client_data, dialog_history, custom_prompt, first_name, relevant_answers)
 
     # Логируем
     log_dialog(combined_text, model_response, relevant_titles, relevant_answers, user_id, full_name=full_name, client_info=client_data)
@@ -672,6 +720,8 @@ def generate_and_send_response(user_id, vk):
         summary, reason = generate_summary_and_reason(dialog_history)
         initial_q = last_questions.get(user_id, "")
         first_name, last_name = user_names.get(user_id, ("", ""))
+        first_name = first_name or ""
+        last_name = last_name or ""
         send_operator_notification(
             user_id,
             initial_q,
@@ -740,25 +790,44 @@ def clear_context(full_name):
 def callback():
     data = request.json
 
-    if data.get("type") == "confirmation":
-        # Возвращаем код подтверждения, чтобы ВК привязал Callback
+    # Проверяем тип запроса (подтверждение Callback API)
+    if data.get("type") == "confirmation":        
         return VK_CONFIRMATION_TOKEN
 
+    # Проверяем секретный ключ (если он установлен)
     if VK_SECRET_KEY and data.get("secret") != VK_SECRET_KEY:
         return "Invalid secret", 403
 
-    if data.get("type") == "message_new":
-        msg = data["object"]["message"]
-        user_id = msg["from_id"]
-        text = msg["text"]
+    # Проверяем, есть ли "object" в данных
+    if "object" not in data:
+        logging.error("Ошибка: Отсутствует ключ 'object' в полученных данных от ВКонтакте.")
+        return "Bad request", 400
 
-        out_flag = msg.get("out", 0)
-        is_outgoing = (out_flag == 1)
+    # Проверяем, есть ли "message" внутри "object"
+    if "message" not in data["object"]:
+        logging.error("Ошибка: Отсутствует ключ 'message' в объекте от ВКонтакте.")
+        return "Bad request", 400
 
-        vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
-        vk = vk_session.get_api()
+    msg = data["object"]["message"]
 
-        handle_new_message(user_id, text, vk, is_outgoing=is_outgoing)
+    # Проверяем наличие обязательных полей в сообщении
+    if "from_id" not in msg or "text" not in msg:
+        logging.error("Ошибка: Сообщение не содержит 'from_id' или 'text'.")
+        return "Bad request", 400
+
+    user_id = msg["from_id"]
+    text = msg["text"]
+
+    # Проверяем, является ли сообщение исходящим (от оператора)
+    out_flag = msg.get("out", 0)
+    is_outgoing = (out_flag == 1)
+
+    # Подключаемся к API ВКонтакте
+    vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
+    vk = vk_session.get_api()
+
+    # Обрабатываем новое сообщение
+    handle_new_message(user_id, text, vk, is_outgoing=is_outgoing)
 
     return "ok"
 

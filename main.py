@@ -22,13 +22,13 @@ VK_COMMUNITY_TOKEN = os.environ.get("VK_COMMUNITY_TOKEN", "")
 YANDEX_DISK_TOKEN  = os.environ.get("YANDEX_DISK_TOKEN", "")
 VK_SECRET_KEY       = os.environ.get("VK_SECRET_KEY", "")
 VK_CONFIRMATION_TOKEN = os.environ.get("VK_CONFIRMATION_TOKEN", "")
-
+print(VK_CONFIRMATION_TOKEN)
 # Параметры PostgreSQL
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # ID сообщества (нужно для формирования ссылки формата https://vk.com/gim<community_id>?sel=<user_id>)
 # Например, если сообщество имеет адрес https://vk.com/club48116621, то его ID = 48116621
-VK_COMMUNITY_ID = "48116621"  # <-- Поставьте реальный ID вашего сообщества
+VK_COMMUNITY_ID = "48116621"
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

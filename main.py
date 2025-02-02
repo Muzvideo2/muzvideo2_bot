@@ -762,6 +762,9 @@ def callback():
 
     return "ok"
 
+@app.route('/ping', methods=['GET'])
+def ping():
+    return "Pong!", 200
 
 def process_message(user_id, text):
     """

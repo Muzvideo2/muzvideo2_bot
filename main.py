@@ -790,6 +790,11 @@ def clear_context(full_name):
 def callback():
     data = request.json
 
+    # Проверяем, что объект получен
+    if not isinstance(data, dict) or "object" not in data:
+        logging.error("Ошибка: Нет ключа 'object' в данных от ВКонтакте.")
+        return "Bad request", 400
+
     # Проверяем тип запроса (подтверждение Callback API)
     if data.get("type") == "confirmation":        
         return VK_CONFIRMATION_TOKEN
@@ -798,16 +803,13 @@ def callback():
     if VK_SECRET_KEY and data.get("secret") != VK_SECRET_KEY:
         return "Invalid secret", 403
 
-    # Проверяем, есть ли "object" в данных
-    if "object" not in data:
-        logging.error("Ошибка: Отсутствует ключ 'object' в полученных данных от ВКонтакте.")
-        return "Bad request", 400
+    # Проверяем, что объект содержит `message`
+    vk_object = data["object"]
+    if not isinstance(vk_object, dict) or "message" not in vk_object:
+        logging.warning(f"Игнорируем событие без 'message': {data}")
+        return "ok"  # Возвращаем "ok", чтобы ВКонтакте не заблокировал API
 
-    # Проверяем, есть ли "message" внутри "object"
-    if "message" not in data["object"]:
-        logging.error("Ошибка: Отсутствует ключ 'message' в объекте от ВКонтакте.")
-        return "Bad request", 400
-
+    # Обрабатываем сообщение
     msg = data["object"]["message"]
 
     # Проверяем наличие обязательных полей в сообщении

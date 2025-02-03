@@ -781,6 +781,7 @@ def clear_context(full_name):
         return "Ошибка сервера", 500
 
 @app.route("/callback", methods=["POST"])
+@app.route("/callback", methods=["POST"])
 def callback():
     data = request.json
 
@@ -789,22 +790,31 @@ def callback():
         logging.error("Ошибка: Нет ключа 'object' в данных от ВКонтакте.")
         return "Bad request", 400
 
-    # Проверяем тип запроса (подтверждение Callback API)
-    if data.get("type") == "confirmation":        
+    # Если это запрос подтверждения Callback API, возвращаем токен
+    if data.get("type") == "confirmation":
         return VK_CONFIRMATION_TOKEN
 
     # Проверяем секретный ключ (если он установлен)
     if VK_SECRET_KEY and data.get("secret") != VK_SECRET_KEY:
         return "Invalid secret", 403
 
-    # Проверяем, что объект содержит `message`
     vk_object = data["object"]
-    if not isinstance(vk_object, dict) or "message" not in vk_object:
-        logging.warning(f"Игнорируем событие без 'message': {data}")
-        return "ok"  # Возвращаем "ok", чтобы ВКонтакте не заблокировал API
 
-    # Обрабатываем сообщение
-    msg = data["object"]["message"]
+    # Попытаемся извлечь сообщение:
+    msg = None
+    if isinstance(vk_object, dict):
+        if "message" in vk_object:
+            msg = vk_object["message"]
+        elif "text" in vk_object:
+            # Например, для события message_reply ключ "message" может отсутствовать,
+            # но само тело события содержит нужные поля (text, from_id и т.д.)
+            msg = vk_object
+        else:
+            logging.warning(f"Игнорируем событие без 'message' или 'text': {data}")
+            return "ok"
+    else:
+        logging.warning(f"Неверный формат объекта: {data}")
+        return "ok"
 
     # Проверяем наличие обязательных полей в сообщении
     if "from_id" not in msg or "text" not in msg:
@@ -814,7 +824,7 @@ def callback():
     user_id = msg["from_id"]
     text = msg["text"]
 
-    # Проверяем, является ли сообщение исходящим (от оператора)
+    # Определяем, является ли сообщение исходящим (от оператора)
     out_flag = msg.get("out", 0)
     is_outgoing = (out_flag == 1)
 
@@ -822,9 +832,8 @@ def callback():
     vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
     vk = vk_session.get_api()
 
-    # Обрабатываем новое сообщение
+    # Передаём сообщение на обработку
     handle_new_message(user_id, text, vk, is_outgoing=is_outgoing)
-
     return "ok"
 
 @app.route('/ping', methods=['GET'])

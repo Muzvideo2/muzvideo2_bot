@@ -800,7 +800,6 @@ def clear_context(full_name):
         return "Ошибка сервера", 500
 
 @app.route("/callback", methods=["POST"])
-@app.route("/callback", methods=["POST"])
 def callback():
     data = request.json
 
@@ -819,14 +818,11 @@ def callback():
 
     vk_object = data["object"]
 
-    # Попытаемся извлечь сообщение:
-    msg = None
+    # Если объект не содержит ключ "message", пытаемся использовать его напрямую (например, для message_reply)
     if isinstance(vk_object, dict):
         if "message" in vk_object:
             msg = vk_object["message"]
         elif "text" in vk_object:
-            # Например, для события message_reply ключ "message" может отсутствовать,
-            # но само тело события содержит нужные поля (text, from_id и т.д.)
             msg = vk_object
         else:
             logging.warning(f"Игнорируем событие без 'message' или 'text': {data}")
@@ -840,19 +836,22 @@ def callback():
         logging.error("Ошибка: Сообщение не содержит 'from_id' или 'text'.")
         return "Bad request", 400
 
-    user_id = msg["from_id"]
-    text = msg["text"]
+    # Для входящих сообщений используем from_id, а для исходящих (операторских) — peer_id
+    is_outgoing = (msg.get("out", 0) == 1)
+    if is_outgoing:
+        user_id = msg.get("peer_id", msg["from_id"])
+    else:
+        user_id = msg["from_id"]
 
-    # Определяем, является ли сообщение исходящим (от оператора)
-    out_flag = msg.get("out", 0)
-    is_outgoing = (out_flag == 1)
+    text = msg["text"]
 
     # Подключаемся к API ВКонтакте
     vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
     vk = vk_session.get_api()
 
-    # Передаём сообщение на обработку
+    # Обрабатываем новое сообщение
     handle_new_message(user_id, text, vk, is_outgoing=is_outgoing)
+
     return "ok"
 
 @app.route('/ping', methods=['GET'])

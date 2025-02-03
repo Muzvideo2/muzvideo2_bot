@@ -614,10 +614,17 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
         # Логирование оператора: записываем сообщение в локальный лог-файл
         current_time = datetime.utcnow() + timedelta(hours=6)
         formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
-        if user_id in user_log_files:
-            op_log_path = user_log_files[user_id]
-        else:
-            op_log_path = log_file_path
+        if user_id not in user_log_files:
+            if first_name:  # если имя получено, создаём лог-файл с именем
+                now_str = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
+                custom_file_name = f"dialog_{now_str}_{first_name}_{last_name}.txt"
+                custom_log_path = os.path.join(logs_directory, custom_file_name)
+                user_log_files[user_id] = custom_log_path
+            else:
+                # Если имя не получено, используем общий лог-файл
+                user_log_files[user_id] = log_file_path
+        op_log_path = user_log_files[user_id]
+
         with open(op_log_path, "a", encoding="utf-8") as f:
             f.write(f"[{formatted_time}] user_id={user_id}, Оператор: {text}\n\n")
         # Загружаем лог-файл на Яндекс.Диск после добавления записи

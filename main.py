@@ -548,7 +548,7 @@ def is_user_paused(full_name):
     try:
         # Приводим имя к нижнему регистру (на всякий случай)
         full_name_lower = full_name.lower()
-        response = requests.get(f"https://telegram-bot-k2hl.onrender.com/is_paused/{quote(full_name_lower)}", timeout=5)
+        response = requests.get(f"http://telegram-bot.railway.internal/is_paused/{quote(full_name_lower)}", timeout=5)
         if response.status_code == 200:
             paused_status = response.json().get("paused", False)
             print(f"Статус паузы для {full_name_lower}: {paused_status}") # Логируем имя в нижнем регистре

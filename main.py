@@ -726,22 +726,6 @@ def generate_and_send_response(user_id, vk):
     # Логируем
     log_dialog(combined_text, model_response, relevant_titles, relevant_answers, user_id, full_name=full_name, client_info=client_data)
 
-    # Если пользователь написал "оператор" — отсылаем отдельное уведомление (подробное)
-    if "оператор" in combined_text.lower():
-        summary, reason = generate_summary_and_reason(dialog_history)
-        initial_q = last_questions.get(user_id, "")
-        first_name, last_name = user_names.get(user_id, ("", ""))
-        first_name = first_name or ""
-        last_name = last_name or ""
-        send_operator_notification(
-            user_id,
-            initial_q,
-            summary,
-            reason,
-            first_name=first_name,
-            last_name=last_name
-        )
-
     # Обновляем диалог в памяти
     dialog_history.append({"user": combined_text, "bot": model_response, "client_info": client_data})
 

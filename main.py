@@ -808,17 +808,15 @@ def callback():
         logging.error("Ошибка: Нет ключа 'object' в данных от ВКонтакте.")
         return "Bad request", 400
 
-    # Если это запрос подтверждения Callback API, возвращаем токен
-    if data.get("type") == "confirmation":
+    if data.get("type") == "confirmation":        
         return VK_CONFIRMATION_TOKEN
 
-    # Проверяем секретный ключ (если он установлен)
     if VK_SECRET_KEY and data.get("secret") != VK_SECRET_KEY:
         return "Invalid secret", 403
 
     vk_object = data["object"]
-
-    # Если объект не содержит ключ "message", пытаемся использовать его напрямую (например, для message_reply)
+    # Обрабатываем событие, даже если нет ключа "message" (например, message_reply)
+    msg = None
     if isinstance(vk_object, dict):
         if "message" in vk_object:
             msg = vk_object["message"]
@@ -831,17 +829,22 @@ def callback():
         logging.warning(f"Неверный формат объекта: {data}")
         return "ok"
 
-    # Проверяем наличие обязательных полей в сообщении
     if "from_id" not in msg or "text" not in msg:
         logging.error("Ошибка: Сообщение не содержит 'from_id' или 'text'.")
         return "Bad request", 400
 
-    # Для входящих сообщений используем from_id, а для исходящих (операторских) — peer_id
+    # Определяем, является ли сообщение исходящим (от оператора)
     is_outgoing = (msg.get("out", 0) == 1)
+    # Для исходящих сообщений используем peer_id (то есть, получателя)
     if is_outgoing:
         user_id = msg.get("peer_id", msg["from_id"])
     else:
         user_id = msg["from_id"]
+
+    # Если это исходящее сообщение, и в нём присутствует поле admin_author_id,
+    # значит сообщение отправлено самим ботом, и его обрабатывать не нужно.
+    if is_outgoing and "admin_author_id" in msg:
+        return "ok"
 
     text = msg["text"]
 
@@ -849,9 +852,7 @@ def callback():
     vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
     vk = vk_session.get_api()
 
-    # Обрабатываем новое сообщение
     handle_new_message(user_id, text, vk, is_outgoing=is_outgoing)
-
     return "ok"
 
 @app.route('/ping', methods=['GET'])

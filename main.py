@@ -430,34 +430,32 @@ def find_relevant_titles_with_gemini(user_question):
     return []
 
 
-def generate_response(user_question, client_data, dialog_history, custom_prompt, first_name, relevant_answers=None):
-
-    # Формируем историю в текстовом виде
+def generate_response(user_question, client_data, dialog_history, custom_prompt, first_name, relevant_answers=None, relevant_titles=None):
+    # Формируем историю диалога в виде списка строк
     history_lines = []
     for turn in dialog_history:
         if "operator" in turn:
-            # Добавляем сообщение оператора, можно явно указать, что это Сергей
+            # Сообщение оператора
             history_lines.append(f"Учти, что сообщения от Сергея (оператора) являются корректной информацией и должны иметь приоритет. Сергей (оператор) пишет: {turn['operator']}")
         else:
-            # Обычное сообщение пользователя и ответа бота
+            # Сообщения пользователя и бота
             user_msg = turn.get("user", "Неизвестно")
             bot_msg = turn.get("bot", "Нет ответа")
             history_lines.append(f"Пользователь: {user_msg}")
             history_lines.append(f"Модель: {bot_msg}")
     history_text = "\n".join(history_lines)
-
-    # Добавляем информацию о клиенте в историю, если она есть
+    
+    # Если в истории есть информация о клиенте, добавляем её
     client_info_history = ""
     if dialog_history:
         last_client_info = dialog_history[-1].get("client_info", "")
         if last_client_info:
             client_info_history = f"Информация о клиенте: {last_client_info}\n"
-
-    knowledge_hint = (
-        f"Подсказки из базы знаний: {relevant_answers}"
-        if relevant_answers else ""
-    )
     
+    # Подсказки из базы знаний (выводятся полностью в запросе, но в логах будем показывать только ключи)
+    knowledge_hint = f"Подсказки из базы знаний: {relevant_answers}" if relevant_answers else ""
+    
+    # Формируем полный промпт для модели (как раньше)
     if not first_name:
         full_prompt = (
             f"{custom_prompt}\n\n"
@@ -479,12 +477,34 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
             f"Информация о клиенте: {client_data}\n"
             f"Модель:"
         )
-
+    
+    # Подготавливаем логовую версию запроса:
+    # 1. Вместо полного custom_prompt – краткая строка
+    log_custom_prompt = "Промпт из файла prompt.txt"
+    # 2. Контекст – только последние 4 строки из истории (если их больше 4)
+    if len(history_lines) > 4:
+        log_context = "\n".join(history_lines[-4:])
+    else:
+        log_context = "\n".join(history_lines)
+    # 3. Подсказки – выводим только ключи (если relevant_titles переданы)
+    log_knowledge = f"{', '.join(relevant_titles)}" if relevant_titles else "нет"
+    
+    log_text = (
+        "\nЗапрос к модели:\n"
+        f"Промпт: {log_custom_prompt}\n"
+        f"Контекст переписки (последние 4 сообщения):\n{log_context}\n"
+        f"Подсказки из базы знаний (ключи): {log_knowledge}\n"
+        f"Текущий запрос пользователя: {user_question}\n"
+        f"Информация о клиенте: {client_data}\n"
+    )
+    logging.info(log_text)
+    
+    # Отправляем запрос модели
     data = {
         "contents": [{"parts": [{"text": full_prompt}]}]
     }
     headers = {"Content-Type": "application/json"}
-
+    
     for attempt in range(5):
         resp = requests.post(gemini_url, headers=headers, json=data)
         if resp.status_code == 200:
@@ -494,13 +514,15 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
             except KeyError:
                 return "Извините, произошла ошибка при обработке ответа модели."
         elif resp.status_code == 503:
-            # Возвращаем кастомное сообщение при перегрузке модели
-            return "Ой! Извините. Я - нейробот онлайн-школы фортепиано и у меня прямо сейчас возникла какая-то проблема. Как только будет возможность, отвечу либо я, либо Сергей. Чтобы ускорить этот процесс напишите слово 'оператор' и тогда возможно помощь придёт быстрее."
+            return ("Ой! Извините. Я - нейробот онлайн-школы фортепиано и у меня прямо сейчас возникла "
+                    "какая-то проблема. Как только будет возможность, отвечу либо я, либо Сергей. Чтобы ускорить "
+                    "этот процесс напишите слово 'оператор' и тогда возможно помощь придёт быстрее.")
         elif resp.status_code == 500:
             time.sleep(10)
         else:
             return f"Ошибка: {resp.status_code}. {resp.text}"
     return "Извините, я сейчас не могу ответить. Попробуйте позже."
+
 
 
 def generate_summary_and_reason(dialog_history):
@@ -568,6 +590,15 @@ def is_user_paused(full_name):
         return False
 
 def handle_new_message(user_id, text, vk, is_outgoing=False):
+    # Логируем, от кого пришло сообщение
+    if is_outgoing:
+        logging.info(f"Получено сообщение от оператора: user_id={user_id}, текст: {text}")
+    else:
+        logging.info(f"Получено сообщение от пользователя: user_id={user_id}, текст: {text}")
+    
+    # Если сообщение исходящее и пришло от сообщества (user_id отрицательный), пропускаем его.
+    if is_outgoing and int(user_id) < 0:
+        return
 
     first_name, last_name = get_vk_user_full_name(user_id)
     full_name = f"{first_name}_{last_name}"
@@ -665,9 +696,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     timer.start()
 
 def generate_and_send_response(user_id, vk):
-
     first_name, last_name = get_vk_user_full_name(user_id)
-
     if vk is None:
         print("Ошибка: объект vk не передан!")
         return
@@ -675,9 +704,6 @@ def generate_and_send_response(user_id, vk):
     msgs = user_buffers.get(user_id, [])
     if not msgs:
         return
-
-    # Проверяем, находится ли пользователь в paused_names перед генерацией ответа
-
     full_name = f"{first_name}_{last_name}"
     if is_user_paused(full_name):
         print(f"Пользователь {full_name} находится на паузе. Пропускаем генерацию ответа.")
@@ -688,53 +714,39 @@ def generate_and_send_response(user_id, vk):
     user_buffers[user_id] = []
 
     dialog_history = dialog_history_dict[user_id]
-
-    # Извлекаем client_info из последнего сообщения в истории
-    last_client_info = ""
-    if dialog_history:
-        last_client_info = dialog_history[-1].get("client_info", "")
-
-    # Проверяем, есть ли в запросе емейл или телефон
+    
+    # Получаем данные о клиенте, если есть
     email_regex = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
     emails = re.findall(email_regex, combined_text)
     phone_regex = r"(?:\+7|7|8)?[\s\-]?\(?(\d{3})\)?[\s\-]?(\d{3})[\s\-]?(\d{2})[\s\-]?(\d{2})"
     phones = re.findall(phone_regex, combined_text)
-
-    # Вызываем get_client_info, если есть емейл или телефон
     if emails or phones:
         client_data = get_client_info(combined_text, user_id)
         logging.info(f"Пользователь {user_id}: запрошена информация о клиенте из таблицы.")
-
-        # Логируем результат поиска
         if client_data:
             logging.info(f"Пользователь {user_id}: найдена информация о клиенте: {client_data}")
         else:
             logging.info(f"Пользователь {user_id}: информация о клиенте не найдена.")
-
     else:
-        # Если нет ни емейла, ни телефона, не ищем
         client_data = ""
         logging.info(f"Пользователь {user_id}: нет емейла или телефона в запросе.")
 
+    # Получаем релевантные ключи и ответы из базы знаний
     relevant_titles = find_relevant_titles_with_gemini(combined_text)
     relevant_answers = [knowledge_base[t] for t in relevant_titles if t in knowledge_base]
 
-    # Добавляем client_data в запрос модели
-    model_response = generate_response(combined_text, client_data, dialog_history, custom_prompt, first_name, relevant_answers)
+    model_response = generate_response(
+        combined_text, client_data, dialog_history, custom_prompt, first_name,
+        relevant_answers, relevant_titles
+    )
 
-    # Логируем
     log_dialog(combined_text, model_response, relevant_titles, relevant_answers, user_id, full_name=full_name, client_info=client_data)
-
-    # Обновляем диалог в памяти
     dialog_history.append({"user": combined_text, "bot": model_response, "client_info": client_data})
-
-    # Отправляем ответ в ВК
     vk.messages.send(
         user_id=user_id,
         message=model_response,
         random_id=int(time.time() * 1000)
     )
-
 
 
 # ==============================

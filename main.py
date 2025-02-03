@@ -437,10 +437,18 @@ def find_relevant_titles_with_gemini(user_question):
 def generate_response(user_question, client_data, dialog_history, custom_prompt, first_name, relevant_answers=None):
 
     # Формируем историю в текстовом виде
-    history_text = "\n".join([
-        f"Пользователь: {turn.get('user','Неизвестно')}\nМодель: {turn.get('bot','Нет ответа')}"
-        for turn in dialog_history
-    ])
+    history_lines = []
+    for turn in dialog_history:
+        if "operator" in turn:
+            # Добавляем сообщение оператора, можно явно указать, что это Сергей
+            history_lines.append(f"Учти, что сообщения от Сергея (оператора) являются корректной информацией и должны иметь приоритет. Сергей (оператор) пишет: {turn['operator']}")
+        else:
+            # Обычное сообщение пользователя и ответа бота
+            user_msg = turn.get("user", "Неизвестно")
+            bot_msg = turn.get("bot", "Нет ответа")
+            history_lines.append(f"Пользователь: {user_msg}")
+            history_lines.append(f"Модель: {bot_msg}")
+    history_text = "\n".join(history_lines)
 
     # Добавляем информацию о клиенте в историю, если она есть
     client_info_history = ""
@@ -454,24 +462,27 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
         if relevant_answers else ""
     )
     
-    full_prompt = (
-        f"{custom_prompt}\n\n"
-        f"Контекст диалога:\n{history_text}\n\n"
-        f"{client_info_history}"
-        f"{knowledge_hint}\n\n"
-        f"Текущий запрос пользователя: {user_question}\n"
-        f"Информация о клиенте: {client_data}\n"
-        f"Модель:"
-    ) if not first_name else (
-        f"{custom_prompt}\n\n"
-        f"Контекст диалога:\n{history_text}\n\n"
-        f"{client_info_history}"  # Добавляем информацию о клиенте в контекст
-        f"{knowledge_hint}\n\n" # Вставляем подсказки из базы знаний
-        f"Обращайся к пользователю по имени: {first_name}\n"
-        f"Текущий запрос пользователя: {user_question}\n"
-        f"Информация о клиенте: {client_data}\n" # Чтобы модель "помнила" о недавнем запросе в БД
-        f"Модель:"
-    )
+    if not first_name:
+        full_prompt = (
+            f"{custom_prompt}\n\n"
+            f"Контекст диалога:\n{history_text}\n\n"
+            f"{client_info_history}"
+            f"{knowledge_hint}\n\n"
+            f"Текущий запрос пользователя: {user_question}\n"
+            f"Информация о клиенте: {client_data}\n"
+            f"Модель:"
+        )
+    else:
+        full_prompt = (
+            f"{custom_prompt}\n\n"
+            f"Контекст диалога:\n{history_text}\n\n"
+            f"{client_info_history}"
+            f"{knowledge_hint}\n\n"
+            f"Обращайся к пользователю по имени: {first_name}\n"
+            f"Текущий запрос пользователя: {user_question}\n"
+            f"Информация о клиенте: {client_data}\n"
+            f"Модель:"
+        )
 
     data = {
         "contents": [{"parts": [{"text": full_prompt}]}]

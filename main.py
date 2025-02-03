@@ -297,34 +297,31 @@ def upload_log_to_yandex_disk(log_file_path):
 # ==============================
 # 4. СОХРАНЕНИЕ ДИАЛОГОВ В POSTGRES
 # ==============================
-def store_dialog_in_db(user_id, user_message, bot_message, client_info=""):
+def store_dialog_in_db(user_id, role, message, client_info=""):
     """
-    Сохраняем каждую пару (user_message + bot_message) в базу PostgreSQL.
-    Добавлено сохранение информации о клиенте.
+    Сохраняет одно сообщение (от пользователя, бота или оператора) в базу PostgreSQL.
+    Поле role должно принимать значение "user", "bot" или "operator".
     """
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
-
-        # Создание таблицы, если её нет
+        # Создание таблицы с новым полем role, если её нет
         cur.execute("""
             CREATE TABLE IF NOT EXISTS dialogues (
                 id SERIAL PRIMARY KEY,
                 user_id BIGINT,
-                user_message TEXT,
-                bot_message TEXT,
+                role TEXT,
+                message TEXT,
                 client_info TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-
         # Вставка записи
         cur.execute(
-            """INSERT INTO dialogues (user_id, user_message, bot_message, client_info)
-                VALUES (%s, %s, %s, %s)""",
-            (user_id, user_message, bot_message, client_info)
+            """INSERT INTO dialogues (user_id, role, message, client_info)
+               VALUES (%s, %s, %s, %s)""",
+            (user_id, role, message, client_info)
         )
-
         conn.commit()
         cur.close()
         conn.close()
@@ -334,68 +331,67 @@ def store_dialog_in_db(user_id, user_message, bot_message, client_info=""):
 
 def load_dialog_from_db(user_id):
     """
-    Подгрузить из БД всю историю сообщений для указанного user_id.
-    Возвращает список словарей вида: [{"user": "...", "bot": "...", "client_info": "..."}, ...].
+    Подгружает из БД всю историю сообщений для указанного user_id.
+    Каждая запись возвращается в виде словаря с ключами, соответствующими роли сообщения,
+    и дополнительным полем "client_info" (если оно было сохранено).
+    Пример: {"user": "текст", "client_info": "..."} или {"operator": "текст", "client_info": "..."}
     """
     dialog_history = []
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
-        # Берём все сообщения по user_id, сортируем по id (или по created_at)
         cur.execute("""
-            SELECT user_message, bot_message, client_info
+            SELECT role, message, client_info
             FROM dialogues
             WHERE user_id = %s
             ORDER BY id ASC
         """, (user_id,))
-
         rows = cur.fetchall()
         for row in rows:
-            user_m = row[0]
-            bot_m = row[1]
-            client_info = row[2]
-            dialog_history.append({"user": user_m, "bot": bot_m, "client_info": client_info})
-
+            role, message, client_info = row
+            dialog_history.append({role: message, "client_info": client_info})
         cur.close()
         conn.close()
     except Exception as e:
-        print(f"Ошибка при загрузке диалога из БД для user_id={user_id}:", e)
-
+        logging.error(f"Ошибка при загрузке диалога из БД для user_id={user_id}: {e}")
     return dialog_history
+
 
 
 # ==============================
 # 5. ЛОГИРОВАНИЕ
 # ==============================
-def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id, full_name="", client_info=""): 
-    """Логируем в локальный файл + отправляем пару (user_message, bot_message) в PostgreSQL. 
-    Без подсчёта токенов. 
-    """ 
-    # Сохраняем в базу данных 
-    store_dialog_in_db(user_id, user_question, bot_response, client_info)
+def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id, full_name="", client_info=""):
+    """
+    Логирует в локальный файл и сохраняет каждое сообщение в базу данных.
+    Сообщения от пользователя и от бота сохраняются по отдельности.
+    """
+    # Сохраняем сообщение пользователя и ответа бота в БД
+    store_dialog_in_db(user_id, "user", user_question, client_info)
+    store_dialog_in_db(user_id, "bot", bot_response, client_info)
 
-    current_time = datetime.utcnow() + timedelta(hours=6) 
-    formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S") 
+    current_time = datetime.utcnow() + timedelta(hours=6)
+    formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
 
-    # Определяем лог-файл для пользователя 
-    if user_id in user_log_files: 
-        local_log_file = user_log_files[user_id] 
-    else: 
-        local_log_file = log_file_path 
+    # Определяем лог-файл для пользователя
+    if user_id in user_log_files:
+        local_log_file = user_log_files[user_id]
+    else:
+        local_log_file = log_file_path
 
-    # Пишем данные в лог-файл 
-    with open(local_log_file, "a", encoding="utf-8") as log_file: 
-        log_file.write(f"[{formatted_time}] {full_name}: {user_question}\n") 
-        if relevant_titles and relevant_answers: 
-            for title, answer in zip(relevant_titles, relevant_answers): 
-                log_file.write(f"[{formatted_time}] Найдено в базе знаний: {title} -> {answer}\n") 
-        if client_info: # Добавляем информацию по клиенту в лог-файл
+    # Записываем данные в лог-файл
+    with open(local_log_file, "a", encoding="utf-8") as log_file:
+        log_file.write(f"[{formatted_time}] {full_name}: {user_question}\n")
+        if relevant_titles and relevant_answers:
+            for title, answer in zip(relevant_titles, relevant_answers):
+                log_file.write(f"[{formatted_time}] Найдено в базе знаний: {title} -> {answer}\n")
+        if client_info:  # Добавляем информацию по клиенту, если она есть
             log_file.write(f"[{formatted_time}] Информация по клиенту: {client_info}\n")
-        log_file.write(f"[{formatted_time}] Модель: {bot_response}\n\n") 
+        log_file.write(f"[{formatted_time}] Модель: {bot_response}\n\n")
 
-    print(f"Содержимое лога:\n{open(local_log_file, 'r', encoding='utf-8').read()}") 
+    print(f"Содержимое лога:\n{open(local_log_file, 'r', encoding='utf-8').read()}")
 
-    # Загружаем лог-файл в Яндекс.Диск 
+    # Загружаем лог-файл на Яндекс.Диск
     upload_log_to_yandex_disk(local_log_file)
 
 
@@ -582,8 +578,9 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     if is_outgoing:
         dialog_history = dialog_history_dict.setdefault(user_id, [])
         dialog_history.append({"operator": text})
-
-        # Логирование оператора
+        # Сохраняем сообщение оператора в БД
+        store_dialog_in_db(user_id, "operator", text)
+        # Логирование оператора: записываем сообщение в локальный лог-файл
         current_time = datetime.utcnow() + timedelta(hours=6)
         formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
         if user_id in user_log_files:
@@ -592,6 +589,8 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
             op_log_path = log_file_path
         with open(op_log_path, "a", encoding="utf-8") as f:
             f.write(f"[{formatted_time}] user_id={user_id}, Оператор: {text}\n\n")
+        # Загружаем лог-файл на Яндекс.Диск после добавления записи
+        upload_log_to_yandex_disk(op_log_path)
         return
 
     # 1. Если пользователя ещё нет в диалоге, подгружаем историю из БД

@@ -876,7 +876,7 @@ def callback():
     # 1. Получаем сырые данные, сохраняем их при необходимости:
     data = request.json
     # Если у вас есть функция save_callback_payload(data), можете раскомментировать:
-    # save_callback_payload(data)
+    save_callback_payload(data)
 
     # 2. Обрабатываем confirmation в первую очередь (если вы не отключили это в настройках ВК)
     if data.get("type") == "confirmation":
@@ -949,3 +949,36 @@ def callback():
 
     # 10. Возвращаем "ok", чтобы ВК понимал, что колбэк обработан
     return "ok"
+
+
+@app.route('/ping', methods=['GET'])
+def ping():
+    return "Pong!", 200
+
+def process_message(user_id, text):
+    """
+    Логика обработки сообщений (пример, если бы нужно было).
+    """
+    send_message(user_id, f"Вы написали: {text}")
+
+
+def send_message(user_id, message):
+    """
+    Отправляет сообщение через API ВКонтакте.
+    """
+    url = "https://api.vk.com/method/messages.send"
+    params = {
+        "access_token": VK_COMMUNITY_TOKEN,
+        "user_id": user_id,
+        "message": message,
+        "random_id": 0,
+        "v": "5.131"
+    }
+    requests.post(url, params=params)
+
+
+if __name__ == "__main__":
+    vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
+    vk = vk_session.get_api()
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)

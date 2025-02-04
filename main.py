@@ -906,67 +906,90 @@ def clear_context(full_name):
         print(f"Ошибка при очистке контекста для {full_name}: {e}")
         return "Ошибка сервера", 500
 
+# Глобальная память для недавних event_id
+recent_event_ids = {}  # event_id -> float( time.time() )
+EVENT_ID_TTL = 30       # Сколько секунд хранить event_id
+
 @app.route("/callback", methods=["POST"])
 def callback():
-    # 1. Получаем сырые данные, сохраняем их при необходимости:
+    # 1. Получаем сырые данные
     data = request.json
-    # Если у вас есть функция save_callback_payload(data), можете раскомментировать:
-    save_callback_payload(data)
+    # Если у вас есть функция save_callback_payload(data), раскомментируйте:
+    # save_callback_payload(data)
 
-    # 2. Обрабатываем confirmation в первую очередь (если вы не отключили это в настройках ВК)
+    # 2. Если тип = confirmation, возвращаем подтверждение
     if data.get("type") == "confirmation":
         return VK_CONFIRMATION_TOKEN
 
-    # 3. Проверяем secret, если используется
+    # 3. Проверяем secret (если используется)
     if VK_SECRET_KEY and data.get("secret") != VK_SECRET_KEY:
         return "Invalid secret", 403
 
-    # 4. Смотрим на тип события (message_new, message_reply, message_edit и т.п.)
+    # 4. Определяем event_type и event_id
     event_type = data.get("type")
+    event_id = data.get("event_id", "no_event_id")  # у некоторых событий может не быть event_id
+
+    # -- Дедубликация --
+    # Чистим старые event_id
+    now_ts = time.time()
+    to_delete = []
+    for eid, tstamp in recent_event_ids.items():
+        if now_ts - tstamp > EVENT_ID_TTL:
+            to_delete.append(eid)
+    for eid in to_delete:
+        del recent_event_ids[eid]
+
+    # Проверяем, не встречали ли этот event_id недавно
+    if event_id in recent_event_ids:
+        logging.info(f"Дублирующийся колбэк event_id={event_id} (type={event_type}), пропускаем.")
+        return "ok"
+    else:
+        # Запоминаем, что этот event_id обработан
+        recent_event_ids[event_id] = now_ts
+
+    # 5. Смотрим, интересен ли нам тип события
     if event_type not in ("message_new", "message_reply", "message_edit"):
         logging.info(f"Пропускаем событие type={event_type}")
         return "ok"
 
-    # 5. Достаём ключ "object"
+    # 6. Достаём объект
     vk_object = data.get("object", {})
     if not isinstance(vk_object, dict):
         logging.warning("Неправильный формат 'object' в колбэке.")
         return "ok"
 
-    # 6. Пытаемся вытащить поля from_id, text и out
+    # 7. Пытаемся вытащить from_id, text и out
     msg = {}
     if "message" in vk_object:
-        # Обычно при "message_new"
+        # обычно при "message_new"
         inner = vk_object["message"]
         msg["from_id"] = inner.get("from_id")
         msg["text"] = inner.get("text", "")
         msg["out"] = inner.get("out", 0)
     else:
-        # При "message_reply" часто нужные поля лежат прямо в object
+        # при "message_reply" поля often лежат прямо в object
         msg["from_id"] = vk_object.get("from_id")
         msg["text"] = vk_object.get("text", "")
         msg["out"] = vk_object.get("out", 0)
 
     if "admin_author_id" in vk_object:
-        # Сообщение от администратора (оператор), но не пропускаем
-        logging.info(f"admin_author_id={vk_object['admin_author_id']} => сообщение оператора (вероятно)")
+        # означает, что сообщение послал админ (оператор), но мы его не пропускаем
+        logging.info(f"admin_author_id={vk_object['admin_author_id']} => сообщение оператора (скорее всего)")
 
-    # 7. Если нет from_id или text, пропускаем
     if not msg.get("from_id") or "text" not in msg:
         logging.warning(f"Не удалось извлечь from_id/text из события {event_type}: {data}")
         return "ok"
 
-    # 8. Определяем, это исходящее (out=1) или входящее
+    # 8. out=1 => исходящее, out=0 => входящее
     is_outgoing = (msg["out"] == 1)
     user_id = msg["from_id"]
     text = msg["text"]
 
-    # 9. Подключаемся к VK API (создаём vk здесь, 
-    #    чтобы handle_new_message мог его использовать)
+    # 9. Создаём vk (либо используйте глобально, если хотите)
     vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
     vk = vk_session.get_api()
 
-    # 10. Передаём в функцию handle_new_message
+    # 10. Вызываем handle_new_message (остальная логика не меняется)
     handle_new_message(
         user_id=user_id,
         text=text,
@@ -974,7 +997,7 @@ def callback():
         is_outgoing=is_outgoing
     )
 
-    # 11. Возвращаем "ok"
+    # 11. Всё, возвращаем "ok"
     return "ok"
 
 

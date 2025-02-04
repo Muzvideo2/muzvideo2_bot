@@ -436,7 +436,7 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
     for turn in dialog_history:
         if "operator" in turn:
             # Сообщение оператора
-            history_lines.append(f"Учти, что сообщения от Сергея (оператора) являются корректной информацией и должны иметь приоритет. Сергей (оператор) пишет: {turn['operator']}")
+            history_lines.append(f"Сергей (оператор) написал клиенту: {turn['operator']}")
         else:
             # Сообщения пользователя и бота
             user_msg = turn.get("user", "Неизвестно")
@@ -477,6 +477,19 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
             f"Информация о клиенте: {client_data}\n"
             f"Модель:"
         )
+
+    # Записываем полный промпт, который будет отправлен модели, в отдельный файл
+    now_str = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
+    prompt_filename = f"prompt_{now_str}.txt"
+    prompt_file_path = os.path.join(logs_directory, prompt_filename)
+    try:
+        with open(prompt_file_path, "w", encoding="utf-8") as pf:
+            pf.write(full_prompt)
+        # Загружаем файл на Яндекс.Диск
+        upload_log_to_yandex_disk(prompt_file_path)
+        logging.info(f"Полный промпт, отправленный в модель, сохранён в файл: {prompt_filename}")
+    except Exception as e:
+        logging.error(f"Ошибка при записи промпта в файл: {e}")
     
     # Подготавливаем логовую версию запроса:
     # 1. Вместо полного custom_prompt – краткая строка
@@ -569,9 +582,9 @@ last_questions = {}
 
 DELAY_SECONDS = 60
 
-# ==============================
+# =====================================
 # 8. ПАУЗА ДЛЯ КОНКРЕТНОГО ПОЛЬЗОВАТЕЛЯ
-# ==============================
+# =====================================
 
 def is_user_paused(full_name):
     try:
@@ -588,6 +601,10 @@ def is_user_paused(full_name):
     except requests.exceptions.RequestException as e:
         print(f"Ошибка подключения к Telegram API: {e}")
         return False
+
+# =====================================
+# 9. ОБРАБОТКА ПОСТУПИВШЕГО СООБЩЕНИЯ
+# =====================================
 
 def handle_new_message(user_id, text, vk, is_outgoing=False):
     # Логируем, от кого пришло сообщение
@@ -757,7 +774,7 @@ def generate_and_send_response(user_id, vk):
 
 
 # ==============================
-# 8. ОСНОВНОЙ ЦИКЛ
+# 10. ОСНОВНОЙ ЦИКЛ
 # ==============================
 
 # Flask-приложение

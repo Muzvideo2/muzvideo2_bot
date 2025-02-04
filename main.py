@@ -163,7 +163,7 @@ def get_client_info(user_question, user_id):
     return client_info.strip()
 
 # =======================================
-# ФУНКЦИЯ ЗАПРОСА ИМЕНИ КЛИЕНТА ВКОНТАКТЕ
+# 2. ФУНКЦИЯ ЗАПРОСА ИМЕНИ КЛИЕНТА ВКОНТАКТЕ
 # =======================================
 
 def get_vk_user_full_name(user_id):
@@ -198,7 +198,7 @@ def get_vk_user_full_name(user_id):
 
 
 # ==============================
-# 2. ФУНКЦИИ УВЕДОМЛЕНИЙ В ТЕЛЕГРАМ
+# 3. ФУНКЦИИ УВЕДОМЛЕНИЙ В ТЕЛЕГРАМ
 # ==============================
 def send_telegram_notification(user_question, dialog_id, first_name="", last_name=""):
     """
@@ -248,9 +248,10 @@ def send_operator_notification(dialog_id, initial_question, dialog_summary, reas
     requests.post(url, data=data)
 
 
-# ==============================
-# 3. РАБОТА С ЯНДЕКС.ДИСКОМ: ЗАГРУЗКА ЛОГ-ФАЙЛОВ
-# ==============================
+# ==============================================
+# 4. РАБОТА С ЯНДЕКС.ДИСКОМ: ЗАГРУЗКА ЛОГ-ФАЙЛОВ
+# ==============================================
+
 def upload_log_to_yandex_disk(log_file_path):
     # Проверяем, существует ли папка на Яндекс.Диске
     create_dir_url = "https://cloud-api.yandex.net/v1/disk/resources"
@@ -293,10 +294,41 @@ def upload_log_to_yandex_disk(log_file_path):
         else:
             print("Ошибка загрузки на Яндекс.Диск:", upload_resp.text)
 
+# ================================================================================
+# 5. ФУНКЦИЯ ЗАПИСИ СООБЩЕНИЯ ОТ ОПЕРАТОРА В JSON-файл и сохранения на Яндекс.Диск
+# ================================================================================
 
-# ==============================
-# 4. СОХРАНЕНИЕ ДИАЛОГОВ В POSTGRES
-# ==============================
+# Создадим папку, где будут сохраняться дампы callback:
+CALLBACK_LOGS_DIR = "callback_logs"
+if not os.path.exists(CALLBACK_LOGS_DIR):
+    os.makedirs(CALLBACK_LOGS_DIR, exist_ok=True)
+
+
+def save_callback_payload(data):
+    """
+    Сохраняет весь JSON, полученный от ВКонтакте, в локальный файл
+    и загружает этот файл на Яндекс.Диск.
+
+    data: dict — полный JSON из request.json
+    """
+    # Генерируем имя файла вида callback_2025-02-16_13-59-59.json
+    timestamp_str = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+    file_name = f"callback_{timestamp_str}.json"
+    file_path = os.path.join(CALLBACK_LOGS_DIR, file_name)
+
+    # Записываем JSON в файл (в UTF-8, с отступами для удобства)
+    with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+    # Загружаем файл на Яндекс.Диск (предполагается, что функция уже определена)
+    upload_log_to_yandex_disk(file_path)
+
+    print(f"Сохранён колбэк JSON: {file_name}")
+
+# =================================
+# 6. СОХРАНЕНИЕ ДИАЛОГОВ В POSTGRES
+# =================================
+
 def store_dialog_in_db(user_id, role, message, client_info=""):
     """
     Сохраняет одно сообщение (от пользователя, бота или оператора) в базу PostgreSQL.
@@ -359,7 +391,7 @@ def load_dialog_from_db(user_id):
 
 
 # ==============================
-# 5. ЛОГИРОВАНИЕ
+# 7. ЛОГИРОВАНИЕ
 # ==============================
 def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id, full_name="", client_info=""):
     """
@@ -396,7 +428,7 @@ def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, u
 
 
 # ==============================
-# 6. ИНТЕГРАЦИЯ С GEMINI
+# 8. ИНТЕГРАЦИЯ С GEMINI
 # ==============================
 def find_relevant_titles_with_gemini(user_question):
     titles = list(knowledge_base.keys())
@@ -579,9 +611,9 @@ def generate_summary_and_reason(dialog_history):
     return "Не удалось связаться с сервисом", "Не удалось связаться с сервисом"
 
 
-# ==============================
-# 7. 30-секундная задержка и буфер сообщений
-# ==============================
+# ==========================================
+# 9. 60-секундная задержка и буфер сообщений
+# ==========================================
 user_buffers = {}
 user_timers  = {}
 last_questions = {}
@@ -589,7 +621,7 @@ last_questions = {}
 DELAY_SECONDS = 60
 
 # =====================================
-# 8. ПАУЗА ДЛЯ КОНКРЕТНОГО ПОЛЬЗОВАТЕЛЯ
+# 10. ПАУЗА ДЛЯ КОНКРЕТНОГО ПОЛЬЗОВАТЕЛЯ
 # =====================================
 
 def is_user_paused(full_name):
@@ -609,7 +641,7 @@ def is_user_paused(full_name):
         return False
 
 # =====================================
-# 9. ОБРАБОТКА ПОСТУПИВШЕГО СООБЩЕНИЯ
+# 11. ОБРАБОТКА ПОСТУПИВШЕГО СООБЩЕНИЯ
 # =====================================
 
 def handle_new_message(user_id, text, vk, is_outgoing=False):
@@ -797,7 +829,7 @@ def generate_and_send_response(user_id, vk):
 
 
 # ==============================
-# 10. ОСНОВНОЙ ЦИКЛ
+# 12. ОСНОВНОЙ ЦИКЛ
 # ==============================
 
 # Flask-приложение
@@ -842,7 +874,10 @@ def clear_context(full_name):
 @app.route("/callback", methods=["POST"])
 def callback():
     data = request.json
-
+    
+    # -- ДО ВСЕХ ПРОВЕРОК -- сохраняем входящие данные:
+    save_callback_payload(data)
+    
     # Проверяем, что объект получен
     if not isinstance(data, dict) or "object" not in data:
         logging.error("Ошибка: Нет ключа 'object' в данных от ВКонтакте.")

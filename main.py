@@ -614,7 +614,8 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
         logging.info(f"Получено сообщение от пользователя: user_id={user_id}, текст: {text}")
     
     # Если сообщение исходящее и пришло от сообщества (user_id отрицательный), пропускаем его.
-    if is_outgoing and int(user_id) < 0:
+    if is_outgoing and (int(user_id) < 0 or int(user_id) == int(VK_COMMUNITY_ID)):
+        logging.info(f"Исходящее сообщение от самого бота (community_id). Пропускаем. user_id={user_id}, text={text}")
         return
 
     first_name, last_name = get_vk_user_full_name(user_id)

@@ -873,91 +873,79 @@ def clear_context(full_name):
 
 @app.route("/callback", methods=["POST"])
 def callback():
+    # 1. Получаем сырые данные, сохраняем их при необходимости:
     data = request.json
-    
-    # -- ДО ВСЕХ ПРОВЕРОК -- сохраняем входящие данные:
-    save_callback_payload(data)
-    
-    # Проверяем, что объект получен
-    if not isinstance(data, dict) or "object" not in data:
-        logging.error("Ошибка: Нет ключа 'object' в данных от ВКонтакте.")
-        return "Bad request", 400
+    # Если у вас есть функция save_callback_payload(data), можете раскомментировать:
+    # save_callback_payload(data)
 
-    if data.get("type") == "confirmation":        
+    # 2. Обрабатываем confirmation в первую очередь (если вы не отключили это в настройках ВК)
+    if data.get("type") == "confirmation":
         return VK_CONFIRMATION_TOKEN
 
+    # 3. Проверяем secret, если используется
     if VK_SECRET_KEY and data.get("secret") != VK_SECRET_KEY:
         return "Invalid secret", 403
 
-    vk_object = data["object"]
-    # Обрабатываем событие, даже если нет ключа "message" (например, message_reply)
-    msg = None
-    if isinstance(vk_object, dict):
-        if "message" in vk_object:
-            msg = vk_object["message"]
-        elif "text" in vk_object:
-            msg = vk_object
-        else:
-            logging.warning(f"Игнорируем событие без 'message' или 'text': {data}")
-            return "ok"
-    else:
-        logging.warning(f"Неверный формат объекта: {data}")
+    # 4. Смотрим на тип события (message_new, message_reply, message_edit и т.п.)
+    event_type = data.get("type")
+    if event_type not in ("message_new", "message_reply", "message_edit"):
+        # Если вы хотите также обрабатывать "message_edit" (редактирование сообщений),
+        # оставьте его, если нет — уберите. 
+        logging.info(f"Пропускаем событие type={event_type}")
         return "ok"
 
-    if "from_id" not in msg or "text" not in msg:
-        logging.error("Ошибка: Сообщение не содержит 'from_id' или 'text'.")
-        return "Bad request", 400
-
-    # Определяем, является ли сообщение исходящим (от оператора)
-    is_outgoing = (msg.get("out", 0) == 1)
-    # Для исходящих сообщений используем peer_id (то есть, получателя)
-    if is_outgoing:
-        user_id = msg.get("peer_id", msg["from_id"])
-    else:
-        user_id = msg["from_id"]
-
-    # Если это исходящее сообщение, и в нём присутствует поле admin_author_id,
-    # значит сообщение отправлено самим ботом, и его обрабатывать не нужно.
-    if is_outgoing and "admin_author_id" in msg:
+    # 5. Достаём ключ "object"
+    vk_object = data.get("object", {})
+    if not isinstance(vk_object, dict):
+        logging.warning("Неправильный формат 'object' в колбэке.")
         return "ok"
 
+    # 6. Пытаемся вытащить поля from_id, text и out
+    #    У ВК бывают разные форматы:
+    #    - При "message_new" в "object" лежит ключ "message": { ... }
+    #    - При "message_reply" часто всё лежит прямо в "object": { date, from_id, text, ... }
+    #      или в "object"["message"] — зависит от версии API.
+    # Поэтому делаем логику "проверяем object['message'] -> иначе object".
+    
+    msg = {}
+    if "message" in vk_object:
+        # message_new / иногда message_reply
+        inner = vk_object["message"]
+        msg["from_id"] = inner.get("from_id")
+        msg["text"] = inner.get("text", "")
+        msg["out"] = inner.get("out", 0)
+    else:
+        # message_reply нередко приходит без "object.message", а нужные поля
+        # лежат напрямую в object
+        msg["from_id"] = vk_object.get("from_id")
+        msg["text"] = vk_object.get("text", "")
+        # out (1 = исходящее, 0 = входящее). В некоторых версиях API 
+        # оно также может лежать либо тут же, либо отсутствовать.
+        msg["out"] = vk_object.get("out", 0)
+
+    if "admin_author_id" in vk_object:
+        # Это может означать, что сообщение послал администратор 
+        # (оператор) — но мы НЕ пропускаем!
+        # Просто логируем это:
+        logging.info(f"admin_author_id={vk_object['admin_author_id']} => сообщение оператора (скорее всего)")
+
+    # 7. Если после всех попыток нет from_id или text, пропускаем:
+    if not msg.get("from_id") or "text" not in msg:
+        logging.warning(f"Не удалось извлечь from_id/text из события {event_type}: {data}")
+        return "ok"
+
+    # 8. Определяем, это исходящее (out=1) или входящее
+    is_outgoing = (msg["out"] == 1)
+    user_id = msg["from_id"]
     text = msg["text"]
 
-    # Подключаемся к API ВКонтакте
-    vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
-    vk = vk_session.get_api()
+    # 9. Передаём в вашу функцию handle_new_message
+    handle_new_message(
+        user_id=user_id,
+        text=text,
+        vk=vk,
+        is_outgoing=is_outgoing
+    )
 
-    handle_new_message(user_id, text, vk, is_outgoing=is_outgoing)
+    # 10. Возвращаем "ok", чтобы ВК понимал, что колбэк обработан
     return "ok"
-
-@app.route('/ping', methods=['GET'])
-def ping():
-    return "Pong!", 200
-
-def process_message(user_id, text):
-    """
-    Логика обработки сообщений (пример, если бы нужно было).
-    """
-    send_message(user_id, f"Вы написали: {text}")
-
-
-def send_message(user_id, message):
-    """
-    Отправляет сообщение через API ВКонтакте.
-    """
-    url = "https://api.vk.com/method/messages.send"
-    params = {
-        "access_token": VK_COMMUNITY_TOKEN,
-        "user_id": user_id,
-        "message": message,
-        "random_id": 0,
-        "v": "5.131"
-    }
-    requests.post(url, params=params)
-
-
-if __name__ == "__main__":
-    vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
-    vk = vk_session.get_api()
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)

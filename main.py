@@ -662,27 +662,25 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     Обрабатывает новое сообщение в диалоге.
 
     Параметры:
-      - user_id: ID отправителя сообщения (из поля from_id).
+      - user_id: ID отправителя (из from_id).
       - text: текст сообщения.
       - vk: объект VK API.
-      - is_outgoing: True, если сообщение исходящее (от сообщества).
-      - conv_id: идентификатор диалога. Для входящих это msg["from_id"],
-                для исходящих берётся msg.get("peer_id", msg["from_id"]). Если не указан, используется user_id.
-
+      - is_outgoing: True, если сообщение исходящее (от сообщества или оператора).
+      - conv_id: идентификатор диалога (для входящих = from_id; для исходящих – всегда from_id).
+    
     Логика:
-      1. Все записи сохраняются в один лог‑файл для данного диалога (определяемого conv_id).
-      2. Если исходящее сообщение пришло с отрицательным user_id (типично для сообщений бота) – оно пропускается.
-      3. Если исходящее сообщение пришло с моего ID (OPERATOR_ID = 78671089), оно считается сообщением оператора.
-      4. Для входящих сообщений роль = "user".
-      5. Если входящее сообщение от пользователя совпадает с последним записанным (сравнение по строке), оно не дублируется.
+      1. Если исходящее сообщение пришло с отрицательным user_id (сообщение от бота) – пропускаем.
+      2. Если входящее сообщение от пользователя совпадает с последним, не дублируем его.
+      3. Если диалог новый (история пуста) и сообщение не содержит "оператор", отправляем стартовое уведомление в Telegram.
+      4. Все сообщения записываются в один лог‑файл для данного диалога.
+      5. Имя пользователя (полное, например, "Рома Филимонов") используется для логирования.
     """
-    OPERATOR_ID = 78671089  # Мой личный ID для определения оператора
+    OPERATOR_ID = 78671089
 
-    # Если conv_id не передан, используем user_id
     if conv_id is None:
         conv_id = user_id
 
-    # Определяем роль:
+    # Определяем роль
     if is_outgoing:
         if int(user_id) < 0:
             logging.info(f"[handle_new_message] Исходящее сообщение от бота (community), пропускаем. user_id={user_id}")
@@ -690,23 +688,23 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
         elif int(user_id) == OPERATOR_ID:
             role = "operator"
         else:
-            role = "operator"  # Если is_outgoing, но не от бота – считаем операторским.
+            role = "operator"
     else:
         role = "user"
 
-    # Загружаем историю диалога по conv_id (единственный лог для данного диалога)
+    # Загружаем историю диалога по conv_id
     if conv_id not in dialog_history_dict:
         existing_history = load_dialog_from_db(conv_id)
         dialog_history_dict[conv_id] = existing_history
     dialog_history = dialog_history_dict[conv_id]
 
-    # Получаем имя пользователя по conv_id – всегда один и тот же
+    # Получаем имя пользователя для диалога (по conv_id)
     if conv_id in user_names:
         first_name, last_name = user_names[conv_id]
     else:
         first_name, last_name = get_vk_user_full_name(conv_id)
         user_names[conv_id] = (first_name, last_name)
-    # Формируем полное имя; если не получено, то "unknown"
+    # Формируем полное имя – если last_name отсутствует, оставляем первое имя
     if first_name and last_name:
         display_name = f"{first_name} {last_name}".strip()
     elif first_name:
@@ -714,14 +712,19 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     else:
         display_name = "unknown"
 
-    # Для входящих сообщений проверяем, не дублируется ли последнее сообщение (с ролью "user")
+    # Если это первое входящее сообщение от пользователя и оно не содержит "оператор",
+    # отправляем уведомление в Telegram
+    if role == "user" and len(dialog_history) == 0 and "оператор" not in text.lower():
+        send_telegram_notification(user_question=text, dialog_id=conv_id, first_name=first_name, last_name=last_name)
+
+    # Дедупликация: если последнее сообщение с ролью "user" совпадает с текущим, пропускаем
     if role == "user" and dialog_history:
         last_entry = dialog_history[-1]
         if "user" in last_entry and last_entry["user"].strip() == text.strip():
             logging.info("[handle_new_message] Дублирующееся входящее сообщение от пользователя, пропускаем.")
             return
 
-    # Используем conv_id для определения лог-файла (все сообщения одного диалога идут в один файл)
+    # Определяем лог-файл для диалога по conv_id (все сообщения одного диалога в один файл)
     if conv_id in user_log_files:
         log_file_path = user_log_files[conv_id]
     else:
@@ -746,11 +749,11 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     except Exception as e:
         logging.error(f"Ошибка записи в лог-файл {log_file_path}: {e}")
 
-    # Сохраняем запись в базу данных и добавляем в диалоговую историю (в памяти)
+    # Сохраняем запись в базу данных и добавляем в историю диалога (в памяти)
     store_dialog_in_db(conv_id, role, text)
     dialog_history.append({role: text})
 
-    # Загружаем (обновляем) лог-файл на Яндекс.Диск
+    # Обновляем лог-файл на Яндекс.Диске
     try:
         upload_log_to_yandex_disk(log_file_path)
     except Exception as e:
@@ -766,7 +769,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
         user_timers[conv_id] = timer
         timer.start()
 
-    # Если входящее сообщение содержит слово "оператор" и это не первое сообщение – уведомляем оператора
+    # Если входящее сообщение содержит слово "оператор" и это не первое сообщение, отправляем уведомление оператору
     if role == "user" and "оператор" in text.lower() and len(dialog_history) > 1:
         summary, reason = generate_summary_and_reason(dialog_history)
         init_q = last_questions.get(conv_id, "")
@@ -945,19 +948,16 @@ def callback():
     # 8. Извлекаем необходимые поля: from_id, text, out.
     msg = {}
     if "message" in vk_object:
-        # Обычно при message_new (а иногда и message_reply)
         inner = vk_object["message"]
         msg["from_id"] = inner.get("from_id")
         msg["text"] = inner.get("text", "")
         msg["out"] = inner.get("out", 0)
     else:
-        # При некоторых message_reply нужные поля могут лежать прямо в object
         msg["from_id"] = vk_object.get("from_id")
         msg["text"] = vk_object.get("text", "")
         msg["out"] = vk_object.get("out", 0)
 
     if "admin_author_id" in vk_object:
-        # Логируем наличие admin_author_id – это, как правило, сообщение оператора.
         logging.info(f"admin_author_id={vk_object['admin_author_id']} => сообщение от оператора")
 
     if not msg.get("from_id") or "text" not in msg:
@@ -966,18 +966,13 @@ def callback():
 
     # 9. Определяем, исходящее ли сообщение (out=1) или входящее (out=0)
     is_outgoing = (msg["out"] == 1)
-    # Определяем идентификатор диалога (conv_id):
-    # Для входящих сообщений conv_id = from_id, для исходящих – берем peer_id (если есть), иначе from_id.
-    if is_outgoing:
-        conv_id = vk_object.get("peer_id", msg["from_id"])
-    else:
-        conv_id = msg["from_id"]
+    # Всегда используем conv_id = from_id, чтобы все сообщения одного диалога записывались в один файл
+    conv_id = msg["from_id"]
 
-    # Определяем user_id и текст
     user_id = msg["from_id"]
     text = msg["text"]
 
-    # 10. Создаем объект vk (либо используйте глобально, если хотите)
+    # 10. Создаем объект vk (локально)
     vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
     vk = vk_session.get_api()
 
@@ -992,7 +987,6 @@ def callback():
 
     # 12. Возвращаем "ok"
     return "ok"
-
 
 @app.route('/ping', methods=['GET'])
 def ping():

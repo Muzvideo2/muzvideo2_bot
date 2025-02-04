@@ -253,17 +253,35 @@ def send_operator_notification(dialog_id, initial_question, dialog_summary, reas
 # ==============================================
 
 def upload_log_to_yandex_disk(log_file_path):
+    """
+    Загружает файл log_file_path на Яндекс.Диск, если YANDEX_DISK_TOKEN задан.
+    Теперь с обработкой исключений и таймаутом, чтобы при зависании запроса
+    не падал весь сервер (worker timeout).
+    """
     # Проверяем, существует ли папка на Яндекс.Диске
     create_dir_url = "https://cloud-api.yandex.net/v1/disk/resources"
     headers = {"Authorization": f"OAuth {YANDEX_DISK_TOKEN}"}
     params = {"path": "disk:/app-logs"}
-    requests.put(create_dir_url, headers=headers, params=params)
 
-    if not os.path.exists(log_file_path):
+    # Если нет токена, выходим
+    if not YANDEX_DISK_TOKEN:
+        logging.warning("YANDEX_DISK_TOKEN не задан. Пропускаем загрузку логов.")
         return
 
-    if not YANDEX_DISK_TOKEN:
-        print("YANDEX_DISK_TOKEN не задан. Пропускаем загрузку логов.")
+    # Если файла нет, тоже выходим
+    if not os.path.exists(log_file_path):
+        logging.warning(f"Файл '{log_file_path}' не найден. Пропускаем загрузку на Я.Диск.")
+        return
+
+    # Сначала пытаемся создать папку "app-logs"
+    try:
+        requests.put(create_dir_url, headers=headers, params=params, timeout=10)
+        # Ошибки здесь не критичны, если папка уже существует, всё ок
+    except requests.Timeout:
+        logging.error("Timeout при создании папки /app-logs на Яндекс.Диске.")
+        return
+    except requests.RequestException as e:
+        logging.error(f"Ошибка при создании папки на Яндекс.Диске: {e}")
         return
 
     file_name = os.path.basename(log_file_path)
@@ -274,25 +292,42 @@ def upload_log_to_yandex_disk(log_file_path):
         "path": ya_path,
         "overwrite": "true"
     }
-    headers = {
-        "Authorization": f"OAuth {YANDEX_DISK_TOKEN}"
-    }
-    r = requests.get(get_url, headers=headers, params=params)
+
+    # 1. Получаем ссылку для загрузки
+    try:
+        r = requests.get(get_url, headers=headers, params=params, timeout=10)
+    except requests.Timeout:
+        logging.error(f"Timeout при получении URL для загрузки на Яндекс.Диск: {file_name}")
+        return
+    except requests.RequestException as e:
+        logging.error(f"Ошибка при запросе URL для загрузки на Яндекс.Диск: {e}")
+        return
+
     if r.status_code != 200:
-        print("Ошибка при получении URL для загрузки на Яндекс.Диск:", r.text)
+        logging.error(f"Ошибка {r.status_code} при получении URL для загрузки на Яндекс.Диск: {r.text}")
         return
 
     href = r.json().get("href", "")
     if not href:
-        print("Не нашли 'href' в ответе Яндекс.Диска:", r.text)
+        logging.error(f"Не нашли 'href' в ответе Яндекс.Диска при получении ссылки загрузки: {r.text}")
         return
 
-    with open(log_file_path, "rb") as f:
-        upload_resp = requests.put(href, files={"file": f})
-        if upload_resp.status_code == 201:
-            print(f"Лог-файл {file_name} успешно загружен на Яндекс.Диск.")
-        else:
-            print("Ошибка загрузки на Яндекс.Диск:", upload_resp.text)
+    # 2. Загружаем файл
+    try:
+        with open(log_file_path, "rb") as f:
+            upload_resp = requests.put(href, files={"file": f}, timeout=15)  # 15с на выгрузку
+    except requests.Timeout:
+        logging.error(f"Timeout при отправке файла '{file_name}' на Яндекс.Диск.")
+        return
+    except requests.RequestException as e:
+        logging.error(f"Ошибка запроса при загрузке файла '{file_name}' на Я.Диск: {e}")
+        return
+
+    if upload_resp.status_code == 201:
+        logging.info(f"Лог-файл '{file_name}' успешно загружен на Яндекс.Диск.")
+    else:
+        logging.error(f"Ошибка {upload_resp.status_code} при загрузке '{file_name}' на Яндекс.Диск: {upload_resp.text}")
+
 
 # ================================================================================
 # 5. ФУНКЦИЯ ЗАПИСИ СООБЩЕНИЯ ОТ ОПЕРАТОРА В JSON-файл и сохранения на Яндекс.Диск

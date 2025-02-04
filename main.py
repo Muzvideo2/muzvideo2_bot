@@ -679,54 +679,78 @@ def is_user_paused(full_name):
 # 11. ОБРАБОТКА ПОСТУПИВШЕГО СООБЩЕНИЯ
 # =====================================
 
-def handle_new_message(user_id, text, vk, is_outgoing=False):
+OPERATOR_ID = 78671089  # ID оператора (мой личный ID)
+
+def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     """
-    Обрабатывает новое входящее или исходящее сообщение.
-    Различает:
-      - Входящие сообщения (от пользователя);
-      - Исходящие сообщения:
-           Если from_id отрицательный (типичен для сообщений, отправленных со стороны сообщества/бота) – сообщение от бота, пропускаем.
-           Если from_id положительный – сообщение от оператора.
-    Все записи сохраняются в единый лог-файл для данного диалога, который создаётся при первом сообщении с именем пользователя (если получено) или как "unknown".
+    Обрабатывает новое сообщение в диалоге.
+    
+    Параметры:
+      - user_id: ID отправителя сообщения (из поля from_id).
+      - text: текст сообщения.
+      - vk: объект VK API.
+      - is_outgoing: True, если сообщение исходящее (от сообщества).
+      - conv_id: идентификатор диалога (conversation ID). Для входящих это msg["from_id"],
+                для исходящих берётся msg.get("peer_id", msg["from_id"]). Если не указан, используется user_id.
+                
+    Логика:
+      1. Все записи сохраняются в один лог‑файл для данного диалога (по conv_id).
+      2. Если исходящее сообщение пришло с отрицательным user_id – это сообщение бота, его пропускаем.
+      3. Если исходящее сообщение отправлено с моего (оператора) ID (78671089), оно считается сообщением оператора.
+      4. Для входящих сообщений роль = "user".
+      5. Если входящее сообщение от пользователя совпадает с последним записанным (для роли "user"),
+         оно не дублируется.
     """
-    # Определяем роль по типу сообщения и from_id:
+    # Если conv_id не передан, используем user_id
+    if conv_id is None:
+        conv_id = user_id
+
+    # Определяем роль по типу сообщения и отправителю:
     if is_outgoing:
-        # Для исходящих сообщений from_id приходит из vk_object.
-        # Если from_id отрицательный – это сообщение, отправленное со стороны сообщества (бот),
-        # которое уже записано в диалог (в generate_and_send_response), поэтому пропускаем.
-        if int(user_id) < 0:
+        if int(user_id) == OPERATOR_ID:
+            role = "operator"
+        elif int(user_id) < 0:
             logging.info(f"[handle_new_message] Исходящее сообщение от бота (community), пропускаем. user_id={user_id}")
             return
         else:
-            role = "operator"
+            role = "operator"  # Если is_outgoing, но не от оператора и не от бота – считаем операторским.
     else:
         role = "user"
     
-    # Если история диалога ещё не загружена для этого user_id, подгружаем её из БД:
-    if user_id not in dialog_history_dict:
-        existing_history = load_dialog_from_db(user_id)
-        dialog_history_dict[user_id] = existing_history
-    dialog_history = dialog_history_dict[user_id]
+    # Загружаем историю диалога для conv_id (одного диалога):
+    if conv_id not in dialog_history_dict:
+        existing_history = load_dialog_from_db(conv_id)
+        dialog_history_dict[conv_id] = existing_history
+    dialog_history = dialog_history_dict[conv_id]
     
-    # Определяем имя пользователя:
-    if user_id in user_names:
-        first_name, last_name = user_names[user_id]
+    # Определяем имя пользователя для диалога (используем conv_id)
+    if conv_id in user_names:
+        first_name, last_name = user_names[conv_id]
     else:
-        first_name, last_name = get_vk_user_full_name(user_id)
-        user_names[user_id] = (first_name, last_name)
-    if first_name:
+        first_name, last_name = get_vk_user_full_name(conv_id)
+        user_names[conv_id] = (first_name, last_name)
+    if first_name and last_name:
         display_name = f"{first_name} {last_name}".strip()
+    elif first_name:
+        display_name = first_name
     else:
         display_name = "unknown"
     
-    # Определяем лог-файл для данного диалога: если уже создан, используем его, иначе создаём новый
-    if user_id in user_log_files:
-        log_file_path = user_log_files[user_id]
+    # Если входящее сообщение от пользователя, проверяем, не является ли оно дубликатом
+    if role == "user" and dialog_history:
+        last_entry = dialog_history[-1]
+        if "user" in last_entry and last_entry["user"].strip() == text.strip():
+            logging.info("[handle_new_message] Дублирующееся входящее сообщение от пользователя, пропускаем.")
+            return
+
+    # Используем conv_id для логирования и хранения истории
+    if conv_id in user_log_files:
+        log_file_path = user_log_files[conv_id]
     else:
         now_str = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
         log_file_name = f"dialog_{now_str}_{display_name.replace(' ', '_')}.txt"
         log_file_path = os.path.join(logs_directory, log_file_name)
-        user_log_files[user_id] = log_file_path
+        user_log_files[conv_id] = log_file_path
 
     # Формируем строку для записи в лог:
     current_time = datetime.utcnow() + timedelta(hours=6)
@@ -745,12 +769,11 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     except Exception as e:
         logging.error(f"Ошибка записи в лог-файл {log_file_path}: {e}")
     
-    # Сохраняем запись в БД
-    store_dialog_in_db(user_id, role, text)
-    # Добавляем запись в диалоговую историю в памяти
+    # Сохраняем запись в БД и добавляем в диалоговую историю (в памяти)
+    store_dialog_in_db(conv_id, role, text)
     dialog_history.append({role: text})
     
-    # Загружаем (перезаписываем) лог-файл на Яндекс.Диск
+    # Загружаем (обновляем) лог-файл на Яндекс.Диске
     try:
         upload_log_to_yandex_disk(log_file_path)
     except Exception as e:
@@ -758,21 +781,21 @@ def handle_new_message(user_id, text, vk, is_outgoing=False):
     
     # Если входящее сообщение (от пользователя), добавляем его в буфер для генерации ответа
     if role == "user":
-        user_buffers.setdefault(user_id, []).append(text)
-        last_questions[user_id] = text
-        # Перезапускаем таймер (если уже был)
-        if user_id in user_timers:
-            user_timers[user_id].cancel()
-        timer = threading.Timer(DELAY_SECONDS, generate_and_send_response, args=(user_id, vk))
-        user_timers[user_id] = timer
+        user_buffers.setdefault(conv_id, []).append(text)
+        last_questions[conv_id] = text
+        if conv_id in user_timers:
+            user_timers[conv_id].cancel()
+        timer = threading.Timer(DELAY_SECONDS, generate_and_send_response, args=(conv_id, vk))
+        user_timers[conv_id] = timer
         timer.start()
     
-    # Если сообщение содержит слово "оператор" и не является первым сообщением, уведомляем оператора
+    # Если входящее сообщение содержит слово "оператор" (например, пользователь просит оператора),
+    # и это не первое сообщение, уведомляем оператора.
     if role == "user" and "оператор" in text.lower() and len(dialog_history) > 1:
         summary, reason = generate_summary_and_reason(dialog_history)
-        initial_q = last_questions.get(user_id, "")
-        send_operator_notification(user_id, initial_q, summary, reason, first_name=first_name, last_name=last_name)
-
+        init_q = last_questions.get(conv_id, "")
+        send_operator_notification(conv_id, init_q, summary, reason,
+                                   first_name=first_name, last_name=last_name)
 
 def generate_and_send_response(user_id, vk):
     """
@@ -903,92 +926,95 @@ EVENT_ID_TTL = 30       # Сколько секунд хранить event_id
 
 @app.route("/callback", methods=["POST"])
 def callback():
-    # 1. Получаем сырые данные
+    # 1. Получаем данные из запроса
     data = request.json
-    # Если у вас есть функция save_callback_payload(data), раскомментируйте:
+
+    # Если хотите сохранять JSON, раскомментируйте следующую строку:
     # save_callback_payload(data)
 
-    # 2. Если тип = confirmation, возвращаем подтверждение
+    # 2. Обработка confirmation-запроса
     if data.get("type") == "confirmation":
         return VK_CONFIRMATION_TOKEN
 
-    # 3. Проверяем secret (если используется)
+    # 3. Проверяем секрет (если используется)
     if VK_SECRET_KEY and data.get("secret") != VK_SECRET_KEY:
         return "Invalid secret", 403
 
-    # 4. Определяем event_type и event_id
+    # 4. Определяем тип события и event_id
     event_type = data.get("type")
-    event_id = data.get("event_id", "no_event_id")  # у некоторых событий может не быть event_id
+    event_id = data.get("event_id", "no_event_id")
 
-    # -- Дедубликация --
-    # Чистим старые event_id
+    # 5. Дедубликация: очищаем старые event_id и пропускаем дубликаты
     now_ts = time.time()
-    to_delete = []
-    for eid, tstamp in recent_event_ids.items():
-        if now_ts - tstamp > EVENT_ID_TTL:
-            to_delete.append(eid)
-    for eid in to_delete:
-        del recent_event_ids[eid]
-
-    # Проверяем, не встречали ли этот event_id недавно
+    for eid in list(recent_event_ids.keys()):
+        if now_ts - recent_event_ids[eid] > EVENT_ID_TTL:
+            del recent_event_ids[eid]
     if event_id in recent_event_ids:
         logging.info(f"Дублирующийся колбэк event_id={event_id} (type={event_type}), пропускаем.")
         return "ok"
     else:
-        # Запоминаем, что этот event_id обработан
         recent_event_ids[event_id] = now_ts
 
-    # 5. Смотрим, интересен ли нам тип события
+    # 6. Если тип события не интересует нас, выходим
     if event_type not in ("message_new", "message_reply", "message_edit"):
         logging.info(f"Пропускаем событие type={event_type}")
         return "ok"
 
-    # 6. Достаём объект
+    # 7. Извлекаем объект события
     vk_object = data.get("object", {})
     if not isinstance(vk_object, dict):
         logging.warning("Неправильный формат 'object' в колбэке.")
         return "ok"
 
-    # 7. Пытаемся вытащить from_id, text и out
+    # 8. Извлекаем необходимые поля: from_id, text, out.
     msg = {}
     if "message" in vk_object:
-        # обычно при "message_new"
+        # Обычно при message_new (а иногда и message_reply)
         inner = vk_object["message"]
         msg["from_id"] = inner.get("from_id")
         msg["text"] = inner.get("text", "")
         msg["out"] = inner.get("out", 0)
     else:
-        # при "message_reply" поля often лежат прямо в object
+        # При некоторых message_reply нужные поля могут лежать прямо в object
         msg["from_id"] = vk_object.get("from_id")
         msg["text"] = vk_object.get("text", "")
         msg["out"] = vk_object.get("out", 0)
 
     if "admin_author_id" in vk_object:
-        # означает, что сообщение послал админ (оператор), но мы его не пропускаем
+        # Логируем наличие admin_author_id – это, как правило, сообщение оператора.
         logging.info(f"admin_author_id={vk_object['admin_author_id']} => сообщение оператора (скорее всего)")
 
     if not msg.get("from_id") or "text" not in msg:
         logging.warning(f"Не удалось извлечь from_id/text из события {event_type}: {data}")
         return "ok"
 
-    # 8. out=1 => исходящее, out=0 => входящее
+    # 9. Определяем, исходящее ли сообщение (out=1) или входящее (out=0)
     is_outgoing = (msg["out"] == 1)
+    # Определяем идентификатор диалога (conv_id):
+    # Для входящих сообщений conv_id = from_id, для исходящих – берем peer_id (если есть), иначе from_id.
+    if is_outgoing:
+        conv_id = vk_object.get("peer_id", msg["from_id"])
+    else:
+        conv_id = msg["from_id"]
+
+    # Определяем user_id и текст
     user_id = msg["from_id"]
     text = msg["text"]
 
-    # 9. Создаём vk (либо используйте глобально, если хотите)
+    # 10. Создаем объект vk (либо используйте глобально, если хотите)
     vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
     vk = vk_session.get_api()
 
-    # 10. Вызываем handle_new_message (остальная логика не меняется)
+    # 11. Вызываем функцию handle_new_message, передавая conv_id
     handle_new_message(
         user_id=user_id,
         text=text,
         vk=vk,
-        is_outgoing=is_outgoing
+        is_outgoing=is_outgoing,
+        conv_id=conv_id
     )
 
-    # 11. Всё, возвращаем "ok"
+    # 12. Возвращаем "ok"
     return "ok"
 
 

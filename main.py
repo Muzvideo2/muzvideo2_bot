@@ -500,10 +500,11 @@ def find_relevant_titles_with_gemini(user_question):
 def generate_response(user_question, client_data, dialog_history, custom_prompt, first_name, relevant_answers=None, relevant_titles=None):
     """
     Генерирует ответ от модели с учётом истории диалога и подсказок из базы знаний.
-    
-    Формируется контекст диалога без последовательных дубликатов. Каждая реплика имеет формат:
+
+    Формируется контекст диалога без дублирования последовательных реплик.
+    Каждая реплика имеет формат:
          "<Имя отправителя>: <сообщение>"
-    Для подсказок из базы знаний выводятся и ключи, и значения в формате "ключ -> значение".
+    Подсказки из knowledge_base включаются в формате "ключ -> значение".
     """
     # Собираем историю диалога, исключая последовательные дубликаты
     history_lines = []
@@ -524,7 +525,8 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
 
     history_text = "\n\n".join(history_lines)
 
-    # Формируем подсказки из базы знаний с ключами и значениями
+    # Формируем подсказки из базы знаний: для каждого ключа из relevant_titles, если он есть в knowledge_base,
+    # добавляем строку "ключ -> значение"
     knowledge_hint = ""
     if relevant_titles:
         kb_lines = []
@@ -547,7 +549,7 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
     prompt_parts.append("Модель:")
     full_prompt = "\n\n".join(prompt_parts)
 
-    # Сохраняем полный промпт в файл и загружаем его на Яндекс.Диск
+    # Сохраняем полный промпт в файл и обновляем на Яндекс.Диске
     now_str = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
     prompt_filename = f"prompt_{now_str}.txt"
     prompt_file_path = os.path.join(logs_directory, prompt_filename)
@@ -559,7 +561,7 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
     except Exception as e:
         logging.error(f"Ошибка при записи промпта в файл: {e}")
 
-    # Логируем сокращённую версию: последние 4 сообщения
+    # Логируем сокращённую версию контекста: последние 4 сообщения
     if len(history_lines) > 4:
         short_context = "\n".join(history_lines[-4:])
     else:
@@ -569,7 +571,7 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
         f"\nЗапрос к модели:\nПромпт: (Сокращённая версия)\nКонтекст (последние 4 сообщения):\n{short_context}\nПодсказки (ключи): {log_knowledge}\nТекущий запрос от {first_name}: {user_question}\nИнформация о клиенте: {client_data}\n"
     )
 
-    # Отправляем запрос модели
+    # Отправляем запрос модели (Gemini)
     data = {"contents": [{"parts": [{"text": full_prompt}]}]}
     headers = {"Content-Type": "application/json"}
     for attempt in range(5):
@@ -581,12 +583,13 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
             except KeyError:
                 return "Извините, произошла ошибка при обработке ответа модели."
         elif resp.status_code == 503:
-            return ("Ой! Извините, я сейчас перегружен. Если срочно, напишите 'оператор'.")
+            return "Ой! Извините, я сейчас перегружен. Если срочно, напишите 'оператор'."
         elif resp.status_code == 500:
             time.sleep(10)
         else:
             return f"Ошибка: {resp.status_code}. {resp.text}"
     return "Извините, я сейчас не могу ответить. Попробуйте позже."
+
 
 
 def generate_summary_and_reason(dialog_history):
@@ -662,21 +665,23 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     Обрабатывает новое сообщение в диалоге.
 
     Параметры:
-      - user_id: ID отправителя (из from_id).
+      - user_id: ID отправителя (из поля from_id).
       - text: текст сообщения.
       - vk: объект VK API.
       - is_outgoing: True, если сообщение исходящее (от сообщества или оператора).
-      - conv_id: идентификатор диалога (для входящих = from_id; для исходящих – всегда from_id).
-    
+      - conv_id: идентификатор диалога. Для входящих — msg["from_id"],
+                для исходящих — msg.get("peer_id", msg["from_id"]). Все реплики одного диалога записываются в один лог‑файл.
+
     Логика:
-      1. Если исходящее сообщение пришло с отрицательным user_id (сообщение от бота) – пропускаем.
-      2. Если входящее сообщение от пользователя совпадает с последним, не дублируем его.
-      3. Если диалог новый (история пуста) и сообщение не содержит "оператор", отправляем стартовое уведомление в Telegram.
-      4. Все сообщения записываются в один лог‑файл для данного диалога.
-      5. Имя пользователя (полное, например, "Рома Филимонов") используется для логирования.
+      1. Если исходящее сообщение имеет отрицательный user_id (сообщение бота) – пропускаем.
+      2. Роль определяется: для входящих — "user", для исходящих, если user_id == OPERATOR_ID, то "operator".
+      3. Если это первое входящее сообщение (история пуста) и текст не содержит "оператор", отправляем уведомление в Telegram.
+      4. Если входящее сообщение дублируется (после strip) с последним сообщением с ролью "user", пропускаем его.
+      5. Все записи добавляются в единый лог‑файл для данного conv_id, сохраняются в БД и в памяти.
     """
     OPERATOR_ID = 78671089
 
+    # Используем conv_id, если передан, иначе user_id
     if conv_id is None:
         conv_id = user_id
 
@@ -688,7 +693,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
         elif int(user_id) == OPERATOR_ID:
             role = "operator"
         else:
-            role = "operator"
+            role = "operator"  # Если is_outgoing, но не от бота – считаем операторским.
     else:
         role = "user"
 
@@ -698,13 +703,13 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
         dialog_history_dict[conv_id] = existing_history
     dialog_history = dialog_history_dict[conv_id]
 
-    # Получаем имя пользователя для диалога (по conv_id)
+    # Получаем имя пользователя по conv_id. Если уже есть – используем кеш.
     if conv_id in user_names:
         first_name, last_name = user_names[conv_id]
     else:
         first_name, last_name = get_vk_user_full_name(conv_id)
         user_names[conv_id] = (first_name, last_name)
-    # Формируем полное имя – если last_name отсутствует, оставляем первое имя
+    # Формируем полное имя: если last_name присутствует, объединяем, иначе просто first_name.
     if first_name and last_name:
         display_name = f"{first_name} {last_name}".strip()
     elif first_name:
@@ -712,17 +717,17 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     else:
         display_name = "unknown"
 
-    # Если это первое входящее сообщение от пользователя и оно не содержит "оператор",
-    # отправляем уведомление в Telegram
-    if role == "user" and len(dialog_history) == 0 and "оператор" not in text.lower():
-        send_telegram_notification(user_question=text, dialog_id=conv_id, first_name=first_name, last_name=last_name)
-
-    # Дедупликация: если последнее сообщение с ролью "user" совпадает с текущим, пропускаем
+    # Для входящих сообщений: если последнее сообщение с ролью "user" совпадает (после strip) с новым, пропускаем
     if role == "user" and dialog_history:
         last_entry = dialog_history[-1]
         if "user" in last_entry and last_entry["user"].strip() == text.strip():
             logging.info("[handle_new_message] Дублирующееся входящее сообщение от пользователя, пропускаем.")
             return
+
+    # Если это первое входящее сообщение (история пуста) и текст не содержит "оператор", отправляем уведомление в Telegram
+    if role == "user" and len(dialog_history) == 0 and "оператор" not in text.lower():
+        send_telegram_notification(user_question=text, dialog_id=conv_id,
+                                   first_name=first_name, last_name=last_name)
 
     # Определяем лог-файл для диалога по conv_id (все сообщения одного диалога в один файл)
     if conv_id in user_log_files:
@@ -749,7 +754,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     except Exception as e:
         logging.error(f"Ошибка записи в лог-файл {log_file_path}: {e}")
 
-    # Сохраняем запись в базу данных и добавляем в историю диалога (в памяти)
+    # Сохраняем запись в базу данных и добавляем в диалоговую историю (в памяти)
     store_dialog_in_db(conv_id, role, text)
     dialog_history.append({role: text})
 
@@ -775,6 +780,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
         init_q = last_questions.get(conv_id, "")
         send_operator_notification(conv_id, init_q, summary, reason,
                                    first_name=first_name, last_name=last_name)
+
 
 def generate_and_send_response(user_id, vk):
     """
@@ -977,16 +983,12 @@ def callback():
     vk = vk_session.get_api()
 
     # 11. Вызываем функцию handle_new_message, передавая conv_id
-    handle_new_message(
-        user_id=user_id,
-        text=text,
-        vk=vk,
-        is_outgoing=is_outgoing,
-        conv_id=conv_id
-    )
+    handle_new_message(user_id=msg["from_id"], text=msg["text"], vk=vk, is_outgoing=is_outgoing, conv_id=conv_id)
 
     # 12. Возвращаем "ok"
     return "ok"
+
+
 
 @app.route('/ping', methods=['GET'])
 def ping():

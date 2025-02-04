@@ -499,57 +499,55 @@ def find_relevant_titles_with_gemini(user_question):
 
 def generate_response(user_question, client_data, dialog_history, custom_prompt, first_name, relevant_answers=None, relevant_titles=None):
     """
-    Генерирует ответ от модели (Gemini) с учётом истории (включая оператора), клиентской информации и базы знаний.
-    Теперь каждый участник (Ольга / Сергей (оператор) / Модель) выводится в хронологическом порядке, без дублирования.
+    Генерирует ответ от модели с учётом истории диалога и подсказок из базы знаний.
+    
+    Формируется контекст диалога без последовательных дубликатов. Каждая реплика имеет формат:
+         "<Имя отправителя>: <сообщение>"
+    Для подсказок из базы знаний выводятся и ключи, и значения в формате "ключ -> значение".
     """
-
-    # 1. Формируем историю диалога, чтобы передать в prompt
-    #    Здесь пользователь будет писаться по имени (если есть), оператор – "Сергей (оператор)", бот – "Модель".
+    # Собираем историю диалога, исключая последовательные дубликаты
     history_lines = []
-    user_display_name = first_name if first_name else "Пользователь"  # Например, "Ольга"
-
+    last_line = None
     for turn in dialog_history:
-        if "operator" in turn:
-            # Сообщение оператора
-            history_lines.append(f"Сергей (оператор): {turn['operator']}")
-        elif "user" in turn:
-            # Сообщение пользователя
-            # Предположим, мы где-то записали имя. Сейчас возьмём user_display_name
-            history_lines.append(f"{user_display_name}: {turn['user']}")
+        if "user" in turn:
+            line = f"{first_name}: {turn['user'].strip()}"
+        elif "operator" in turn:
+            line = f"Оператор: {turn['operator'].strip()}"
         elif "bot" in turn:
-            # Ответ модели
-            history_lines.append(f"Модель: {turn['bot']}")
+            line = f"Модель: {turn['bot'].strip()}"
+        else:
+            continue
+        if line == last_line:
+            continue
+        history_lines.append(line)
+        last_line = line
 
     history_text = "\n\n".join(history_lines)
 
-    # 2. Если последнее сообщение в истории содержит client_info, передаём его
-    last_client_info = ""
-    if dialog_history and "client_info" in dialog_history[-1]:
-        last_client_info = dialog_history[-1]["client_info"] or ""
-
-    # 3. Формируем "подсказки из базы знаний" (если есть)
+    # Формируем подсказки из базы знаний с ключами и значениями
     knowledge_hint = ""
-    if relevant_answers:
-        knowledge_hint = "Подсказки из базы знаний:\n" + "\n".join(relevant_answers)
+    if relevant_titles:
+        kb_lines = []
+        for key in relevant_titles:
+            if key in knowledge_base:
+                kb_lines.append(f"{key} -> {knowledge_base[key]}")
+            else:
+                kb_lines.append(f"{key}")
+        if kb_lines:
+            knowledge_hint = "Подсказки из базы знаний:\n" + "\n".join(kb_lines)
 
-    # 4. Собираем всё в единый prompt
-    #    Уберём отдельную фразу "Обращайся к пользователю по имени...", чтобы не захламлять
-    #    Просто используем в самом диалоге имя (Ольга) вместо слова "Пользователь"
-    parts = []
-    parts.append(custom_prompt)
-    parts.append(f"Контекст диалога (все сообщения подряд):\n{history_text}")
-    if last_client_info.strip():
-        parts.append(f"Информация о клиенте:\n{last_client_info}")
-    if knowledge_hint:
-        parts.append(knowledge_hint)
-    parts.append(f"Текущий запрос от {user_display_name}: {user_question}")
+    # Собираем полный промпт для модели
+    prompt_parts = [custom_prompt,
+                    f"Контекст диалога:\n{history_text}"]
     if client_data.strip():
-        parts.append(f"Результат поиска по таблице (email/телефон):\n{client_data}")
-    parts.append("Модель:")
+        prompt_parts.append(f"Информация о клиенте:\n{client_data}")
+    if knowledge_hint:
+        prompt_parts.append(knowledge_hint)
+    prompt_parts.append(f"Текущий запрос от {first_name}: {user_question}")
+    prompt_parts.append("Модель:")
+    full_prompt = "\n\n".join(prompt_parts)
 
-    full_prompt = "\n\n".join(parts)
-
-    # 5. Сохраним полный промпт в отдельный файл
+    # Сохраняем полный промпт в файл и загружаем его на Яндекс.Диск
     now_str = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
     prompt_filename = f"prompt_{now_str}.txt"
     prompt_file_path = os.path.join(logs_directory, prompt_filename)
@@ -559,34 +557,21 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
         upload_log_to_yandex_disk(prompt_file_path)
         logging.info(f"Полный промпт, отправленный в модель, сохранён: {prompt_filename}")
     except Exception as e:
-        logging.error(f"Ошибка записи промпта: {e}")
+        logging.error(f"Ошибка при записи промпта в файл: {e}")
 
-    # 6. Логируем короткую версию (лишь последние несколько сообщений)
-    short_history = history_lines[-4:] if len(history_lines) > 4 else history_lines
-    short_history_text = "\n".join(short_history)
-    short_knowledge = ", ".join(relevant_titles) if relevant_titles else "нет"
-
+    # Логируем сокращённую версию: последние 4 сообщения
+    if len(history_lines) > 4:
+        short_context = "\n".join(history_lines[-4:])
+    else:
+        short_context = "\n".join(history_lines)
+    log_knowledge = ", ".join(relevant_titles) if relevant_titles else "нет"
     logging.info(
-        f"\nЗапрос к модели:\n"
-        f"Промпт: (Сокращённая версия)\n"
-        f"Последние 4 сообщения:\n{short_history_text}\n\n"
-        f"Подсказки из базы знаний (ключи): {short_knowledge}\n"
-        f"Текущий запрос: {user_question}\n"
-        f"client_data: {client_data}\n"
+        f"\nЗапрос к модели:\nПромпт: (Сокращённая версия)\nКонтекст (последние 4 сообщения):\n{short_context}\nПодсказки (ключи): {log_knowledge}\nТекущий запрос от {first_name}: {user_question}\nИнформация о клиенте: {client_data}\n"
     )
 
-    # 7. Отправляем запрос в Gemini
-    data = {
-        "contents": [
-            {
-                "parts": [
-                    {"text": full_prompt}
-                ]
-            }
-        ]
-    }
+    # Отправляем запрос модели
+    data = {"contents": [{"parts": [{"text": full_prompt}]}]}
     headers = {"Content-Type": "application/json"}
-
     for attempt in range(5):
         resp = requests.post(gemini_url, headers=headers, json=data)
         if resp.status_code == 200:
@@ -596,19 +581,12 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
             except KeyError:
                 return "Извините, произошла ошибка при обработке ответа модели."
         elif resp.status_code == 503:
-            return (
-                "Ой! Извините, я сейчас перегружен. Как только смогу, обязательно отвечу "
-                "или подключится оператор. Если срочно, напишите 'оператор'."
-            )
+            return ("Ой! Извините, я сейчас перегружен. Если срочно, напишите 'оператор'.")
         elif resp.status_code == 500:
             time.sleep(10)
         else:
             return f"Ошибка: {resp.status_code}. {resp.text}"
-
-    return "Извините, я сейчас не могу ответить. Попробуйте чуть позже."
-
-
-
+    return "Извините, я сейчас не могу ответить. Попробуйте позже."
 
 
 def generate_summary_and_reason(dialog_history):
@@ -679,71 +657,71 @@ def is_user_paused(full_name):
 # 11. ОБРАБОТКА ПОСТУПИВШЕГО СООБЩЕНИЯ
 # =====================================
 
-OPERATOR_ID = 78671089  # ID оператора (мой личный ID)
-
 def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     """
     Обрабатывает новое сообщение в диалоге.
-    
+
     Параметры:
       - user_id: ID отправителя сообщения (из поля from_id).
       - text: текст сообщения.
       - vk: объект VK API.
       - is_outgoing: True, если сообщение исходящее (от сообщества).
-      - conv_id: идентификатор диалога (conversation ID). Для входящих это msg["from_id"],
+      - conv_id: идентификатор диалога. Для входящих это msg["from_id"],
                 для исходящих берётся msg.get("peer_id", msg["from_id"]). Если не указан, используется user_id.
-                
+
     Логика:
-      1. Все записи сохраняются в один лог‑файл для данного диалога (по conv_id).
-      2. Если исходящее сообщение пришло с отрицательным user_id – это сообщение бота, его пропускаем.
-      3. Если исходящее сообщение отправлено с моего (оператора) ID (78671089), оно считается сообщением оператора.
+      1. Все записи сохраняются в один лог‑файл для данного диалога (определяемого conv_id).
+      2. Если исходящее сообщение пришло с отрицательным user_id (типично для сообщений бота) – оно пропускается.
+      3. Если исходящее сообщение пришло с моего ID (OPERATOR_ID = 78671089), оно считается сообщением оператора.
       4. Для входящих сообщений роль = "user".
-      5. Если входящее сообщение от пользователя совпадает с последним записанным (для роли "user"),
-         оно не дублируется.
+      5. Если входящее сообщение от пользователя совпадает с последним записанным (сравнение по строке), оно не дублируется.
     """
+    OPERATOR_ID = 78671089  # Мой личный ID для определения оператора
+
     # Если conv_id не передан, используем user_id
     if conv_id is None:
         conv_id = user_id
 
-    # Определяем роль по типу сообщения и отправителю:
+    # Определяем роль:
     if is_outgoing:
-        if int(user_id) == OPERATOR_ID:
-            role = "operator"
-        elif int(user_id) < 0:
+        if int(user_id) < 0:
             logging.info(f"[handle_new_message] Исходящее сообщение от бота (community), пропускаем. user_id={user_id}")
             return
+        elif int(user_id) == OPERATOR_ID:
+            role = "operator"
         else:
-            role = "operator"  # Если is_outgoing, но не от оператора и не от бота – считаем операторским.
+            role = "operator"  # Если is_outgoing, но не от бота – считаем операторским.
     else:
         role = "user"
-    
-    # Загружаем историю диалога для conv_id (одного диалога):
+
+    # Загружаем историю диалога по conv_id (единственный лог для данного диалога)
     if conv_id not in dialog_history_dict:
         existing_history = load_dialog_from_db(conv_id)
         dialog_history_dict[conv_id] = existing_history
     dialog_history = dialog_history_dict[conv_id]
-    
-    # Определяем имя пользователя для диалога (используем conv_id)
+
+    # Получаем имя пользователя по conv_id – всегда один и тот же
     if conv_id in user_names:
         first_name, last_name = user_names[conv_id]
     else:
         first_name, last_name = get_vk_user_full_name(conv_id)
         user_names[conv_id] = (first_name, last_name)
+    # Формируем полное имя; если не получено, то "unknown"
     if first_name and last_name:
         display_name = f"{first_name} {last_name}".strip()
     elif first_name:
         display_name = first_name
     else:
         display_name = "unknown"
-    
-    # Если входящее сообщение от пользователя, проверяем, не является ли оно дубликатом
+
+    # Для входящих сообщений проверяем, не дублируется ли последнее сообщение (с ролью "user")
     if role == "user" and dialog_history:
         last_entry = dialog_history[-1]
         if "user" in last_entry and last_entry["user"].strip() == text.strip():
             logging.info("[handle_new_message] Дублирующееся входящее сообщение от пользователя, пропускаем.")
             return
 
-    # Используем conv_id для логирования и хранения истории
+    # Используем conv_id для определения лог-файла (все сообщения одного диалога идут в один файл)
     if conv_id in user_log_files:
         log_file_path = user_log_files[conv_id]
     else:
@@ -752,7 +730,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
         log_file_path = os.path.join(logs_directory, log_file_name)
         user_log_files[conv_id] = log_file_path
 
-    # Формируем строку для записи в лог:
+    # Формируем строку для записи в лог-файл
     current_time = datetime.utcnow() + timedelta(hours=6)
     formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
     if role == "user":
@@ -761,25 +739,24 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
         log_entry = f"[{formatted_time}] Оператор: {text}\n"
     else:
         log_entry = f"[{formatted_time}] {role}: {text}\n"
-    
-    # Записываем запись в локальный лог-файл (дописываем)
+
     try:
         with open(log_file_path, "a", encoding="utf-8") as log_file:
             log_file.write(log_entry)
     except Exception as e:
         logging.error(f"Ошибка записи в лог-файл {log_file_path}: {e}")
-    
-    # Сохраняем запись в БД и добавляем в диалоговую историю (в памяти)
+
+    # Сохраняем запись в базу данных и добавляем в диалоговую историю (в памяти)
     store_dialog_in_db(conv_id, role, text)
     dialog_history.append({role: text})
-    
-    # Загружаем (обновляем) лог-файл на Яндекс.Диске
+
+    # Загружаем (обновляем) лог-файл на Яндекс.Диск
     try:
         upload_log_to_yandex_disk(log_file_path)
     except Exception as e:
         logging.error(f"Ошибка загрузки лог-файла {log_file_path} на Яндекс.Диск: {e}")
-    
-    # Если входящее сообщение (от пользователя), добавляем его в буфер для генерации ответа
+
+    # Если сообщение от пользователя, добавляем его в буфер для генерации ответа и перезапускаем таймер
     if role == "user":
         user_buffers.setdefault(conv_id, []).append(text)
         last_questions[conv_id] = text
@@ -788,9 +765,8 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
         timer = threading.Timer(DELAY_SECONDS, generate_and_send_response, args=(conv_id, vk))
         user_timers[conv_id] = timer
         timer.start()
-    
-    # Если входящее сообщение содержит слово "оператор" (например, пользователь просит оператора),
-    # и это не первое сообщение, уведомляем оператора.
+
+    # Если входящее сообщение содержит слово "оператор" и это не первое сообщение – уведомляем оператора
     if role == "user" and "оператор" in text.lower() and len(dialog_history) > 1:
         summary, reason = generate_summary_and_reason(dialog_history)
         init_q = last_questions.get(conv_id, "")
@@ -982,7 +958,7 @@ def callback():
 
     if "admin_author_id" in vk_object:
         # Логируем наличие admin_author_id – это, как правило, сообщение оператора.
-        logging.info(f"admin_author_id={vk_object['admin_author_id']} => сообщение оператора (скорее всего)")
+        logging.info(f"admin_author_id={vk_object['admin_author_id']} => сообщение от оператора")
 
     if not msg.get("from_id") or "text" not in msg:
         logging.warning(f"Не удалось извлечь from_id/text из события {event_type}: {data}")

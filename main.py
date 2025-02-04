@@ -682,105 +682,96 @@ def is_user_paused(full_name):
 def handle_new_message(user_id, text, vk, is_outgoing=False):
     """
     Обрабатывает новое входящее или исходящее сообщение.
-    - Если is_outgoing = True, проверяем, совпадает ли текст с последним bot-сообщением в dialog_history:
-      * если совпадает — считаем это "бот" (уже записано), пропускаем;
-      * иначе — считаем "оператор".
-    - Если is_outgoing = False — пользователь.
+    Различает:
+      - Входящие сообщения (от пользователя);
+      - Исходящие сообщения:
+           Если from_id отрицательный (типичен для сообщений, отправленных со стороны сообщества/бота) – сообщение от бота, пропускаем.
+           Если from_id положительный – сообщение от оператора.
+    Все записи сохраняются в единый лог-файл для данного диалога, который создаётся при первом сообщении с именем пользователя (если получено) или как "unknown".
     """
-
-    text_stripped = text.strip()
-
-    # 1. Если в памяти ещё нет истории, подгружаем из БД
+    # Определяем роль по типу сообщения и from_id:
+    if is_outgoing:
+        # Для исходящих сообщений from_id приходит из vk_object.
+        # Если from_id отрицательный – это сообщение, отправленное со стороны сообщества (бот),
+        # которое уже записано в диалог (в generate_and_send_response), поэтому пропускаем.
+        if int(user_id) < 0:
+            logging.info(f"[handle_new_message] Исходящее сообщение от бота (community), пропускаем. user_id={user_id}")
+            return
+        else:
+            role = "operator"
+    else:
+        role = "user"
+    
+    # Если история диалога ещё не загружена для этого user_id, подгружаем её из БД:
     if user_id not in dialog_history_dict:
         existing_history = load_dialog_from_db(user_id)
         dialog_history_dict[user_id] = existing_history
-
     dialog_history = dialog_history_dict[user_id]
-
-    # 2. Если это исходящее сообщение (т.е. от сообщества к пользователю)
-    if is_outgoing:
-        # Ищем последнее сообщение в диалоге с ключом "bot"
-        last_bot_message = None
-        for turn in reversed(dialog_history):
-            if "bot" in turn:
-                last_bot_message = (turn["bot"] or "").strip()
-                break
-
-        if last_bot_message and last_bot_message == text_stripped:
-            # Совпадает с последним сообщением бота => это бот
-            logging.info(f"[handle_new_message] Исходящее сообщение совпадает с последним bot: пропускаем.")
-            return
-        else:
-            # Иначе считаем, что это оператор
-            logging.info(f"[handle_new_message] Исходящее сообщение НЕ совпадает с bot => оператор.")
-            dialog_history.append({"operator": text})
-            store_dialog_in_db(user_id, "operator", text)
-
-            # Локальное логирование
-            current_time = datetime.utcnow() + timedelta(hours=6)
-            fmt_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
-
-            if user_id not in user_log_files:
-                f_name, l_name = user_names.get(user_id, ("unknown", ""))
-                full_name = f"{f_name}_{l_name}".strip("_")
-                now_str = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
-                fname = f"dialog_{now_str}_{full_name}.txt"
-                user_log_files[user_id] = os.path.join(logs_directory, fname)
-
-            operator_log = user_log_files[user_id]
-            with open(operator_log, "a", encoding="utf-8") as f:
-                f.write(f"[{fmt_time}] user_id={user_id}, Оператор: {text}\n\n")
-            upload_log_to_yandex_disk(operator_log)
-            return
-
+    
+    # Определяем имя пользователя:
+    if user_id in user_names:
+        first_name, last_name = user_names[user_id]
     else:
-        # ========== Входящее сообщение от пользователя ==========
-        logging.info(f"[handle_new_message] Входящее сообщение от пользователя user_id={user_id}: {text}")
+        first_name, last_name = get_vk_user_full_name(user_id)
+        user_names[user_id] = (first_name, last_name)
+    if first_name:
+        display_name = f"{first_name} {last_name}".strip()
+    else:
+        display_name = "unknown"
+    
+    # Определяем лог-файл для данного диалога: если уже создан, используем его, иначе создаём новый
+    if user_id in user_log_files:
+        log_file_path = user_log_files[user_id]
+    else:
+        now_str = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
+        log_file_name = f"dialog_{now_str}_{display_name.replace(' ', '_')}.txt"
+        log_file_path = os.path.join(logs_directory, log_file_name)
+        user_log_files[user_id] = log_file_path
 
-        # Запоминаем имя (если ещё нет)
-        if user_id not in user_names:
-            first_name, last_name = get_vk_user_full_name(user_id)
-            user_names[user_id] = (first_name, last_name)
-
-        f_name, l_name = user_names[user_id]
-        full_name = f"{f_name}_{l_name}".strip("_")
-
-        # Если совсем первое сообщение в истории
-        if len(dialog_history) == 0:
-            # Создаём лог-файл
-            now_str = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
-            fname = f"dialog_{now_str}_{full_name}.txt"
-            user_log_files[user_id] = os.path.join(logs_directory, fname)
-
-            # Уведомляем в ТГ, если нет слова "оператор"
-            if "оператор" not in text_stripped.lower():
-                send_telegram_notification(text, user_id, f_name, l_name)
-        else:
-            # Если пользователь просит оператора
-            if "оператор" in text_stripped.lower():
-                summary, reason = generate_summary_and_reason(dialog_history)
-                init_q = last_questions.get(user_id, "")
-                send_operator_notification(
-                    user_id, init_q, summary, reason,
-                    first_name=f_name, last_name=l_name
-                )
-
-        # Проверяем паузу
-        if is_user_paused(full_name):
-            logging.info(f"[handle_new_message] Пользователь {full_name} на паузе, пропускаем.")
-            return
-
-        # Кладём в буфер
+    # Формируем строку для записи в лог:
+    current_time = datetime.utcnow() + timedelta(hours=6)
+    formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
+    if role == "user":
+        log_entry = f"[{formatted_time}] {display_name}: {text}\n"
+    elif role == "operator":
+        log_entry = f"[{formatted_time}] Оператор: {text}\n"
+    else:
+        log_entry = f"[{formatted_time}] {role}: {text}\n"
+    
+    # Записываем запись в локальный лог-файл (дописываем)
+    try:
+        with open(log_file_path, "a", encoding="utf-8") as log_file:
+            log_file.write(log_entry)
+    except Exception as e:
+        logging.error(f"Ошибка записи в лог-файл {log_file_path}: {e}")
+    
+    # Сохраняем запись в БД
+    store_dialog_in_db(user_id, role, text)
+    # Добавляем запись в диалоговую историю в памяти
+    dialog_history.append({role: text})
+    
+    # Загружаем (перезаписываем) лог-файл на Яндекс.Диск
+    try:
+        upload_log_to_yandex_disk(log_file_path)
+    except Exception as e:
+        logging.error(f"Ошибка загрузки лог-файла {log_file_path} на Яндекс.Диск: {e}")
+    
+    # Если входящее сообщение (от пользователя), добавляем его в буфер для генерации ответа
+    if role == "user":
         user_buffers.setdefault(user_id, []).append(text)
         last_questions[user_id] = text
-
-        # Сбрасываем/перезапускаем таймер
+        # Перезапускаем таймер (если уже был)
         if user_id in user_timers:
             user_timers[user_id].cancel()
-
         timer = threading.Timer(DELAY_SECONDS, generate_and_send_response, args=(user_id, vk))
         user_timers[user_id] = timer
         timer.start()
+    
+    # Если сообщение содержит слово "оператор" и не является первым сообщением, уведомляем оператора
+    if role == "user" and "оператор" in text.lower() and len(dialog_history) > 1:
+        summary, reason = generate_summary_and_reason(dialog_history)
+        initial_q = last_questions.get(user_id, "")
+        send_operator_notification(user_id, initial_q, summary, reason, first_name=first_name, last_name=last_name)
 
 
 def generate_and_send_response(user_id, vk):

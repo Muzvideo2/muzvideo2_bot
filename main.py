@@ -326,7 +326,7 @@ def upload_log_to_yandex_disk(log_file_path):
     if upload_resp.status_code == 201:
         logging.info(f"Лог-файл '{file_name}' успешно загружен на Яндекс.Диск.")
     else:
-logging.error(f"Ошибка {upload_resp.status_code} при загрузке '{file_name}' на Яндекс.Диск: {upload_resp.text}")
+        logging.error(f"Ошибка {upload_resp.status_code} при загрузке '{file_name}' на Яндекс.Диск: {upload_resp.text}")
 
 
 # ================================================================================

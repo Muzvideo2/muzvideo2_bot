@@ -364,31 +364,31 @@ def save_callback_payload(data):
 # 6. СОХРАНЕНИЕ ДИАЛОГОВ В POSTGRES
 # =================================
 
-def store_dialog_in_db(conv_id, role, message, client_info=""):
-    """
-    Сохраняет одно сообщение (от пользователя, бота или оператора) в базу PostgreSQL.
-    Поле role должно принимать значение "user", "bot" или "operator".
-    """
+def store_dialog_in_db(conv_id, role, message_with_timestamp, client_info=""):
+    """Сохраняет сообщение С timestamp-ом в базу данных."""
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
+
         # Создание таблицы с новым полем role, если её нет
         cur.execute("""
             CREATE TABLE IF NOT EXISTS dialogues (
                 id SERIAL PRIMARY KEY,
                 conv_id BIGINT,
                 role TEXT,
-                message TEXT,
+                message TEXT,          -- Текст сообщения (включая timestamp)
                 client_info TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
         # Вставка записи
         cur.execute(
             """INSERT INTO dialogues (conv_id, role, message, client_info)
                VALUES (%s, %s, %s, %s)""",
-            (conv_id, role, message, client_info)
+            (conv_id, role, message_with_timestamp, client_info)  # Используем message_with_timestamp
         )
+
         conn.commit()
         cur.close()
         conn.close()
@@ -415,8 +415,8 @@ def load_dialog_from_db(conv_id):
         """, (conv_id,))
         rows = cur.fetchall()
         for row in rows:
-            role, message, client_info = row
-            dialog_history.append({role: message, "client_info": client_info})
+            role, message_with_timestamp, client_info = row
+            dialog_history.append({role: message_with_timestamp, "client_info": client_info}) # Используем строку целиком
         cur.close()
         conn.close()
     except Exception as e:

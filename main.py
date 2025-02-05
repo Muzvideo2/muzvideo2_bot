@@ -538,11 +538,13 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
         kb_lines = []
         for key in relevant_titles:
             k = key.strip()  # удаляем лишние пробелы и символы перевода строки
+            logging.info(f"Обрабатывается ключ: '{k}'") # Логируем ключ
             if k in knowledge_base:
                 value = str(knowledge_base[k]).strip()  # убеждаемся, что значение тоже без лишних символов
                 kb_lines.append(f"{k} -> {value}")
-            else:
-                kb_lines.append(f"{k}")
+                logging.info(f"Добавлено в kb_lines: '{k} -> {value}'") # Логируем добавленную строку
+             else:
+        logging.warning(f"Ключ '{k}' отсутствует в knowledge_base") # Логируем отсутствие ключа
         if kb_lines:
             knowledge_hint = "Подсказки из базы знаний:\n" + "\n".join(kb_lines)
 
@@ -550,7 +552,7 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
     prompt_parts = [custom_prompt,
                     f"Контекст диалога:\n{history_text}"]
     if client_data.strip():
-        prompt_parts.append(f"Информация о клиенте:\n{client_data}")
+        prompt_parts.append(client_data)
     if knowledge_hint:
         prompt_parts.append(knowledge_hint)
     prompt_parts.append(f"Текущий запрос от {first_name}: {user_question}")

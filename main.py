@@ -543,7 +543,7 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
                 value = str(knowledge_base[k]).strip()  # убеждаемся, что значение тоже без лишних символов
                 kb_lines.append(f"{k} -> {value}")
                 logging.info(f"Добавлено в kb_lines: '{k} -> {value}'") # Логируем добавленную строку
-             else:
+            else:
                 logging.warning(f"Ключ '{k}' отсутствует в knowledge_base") # Логируем отсутствие ключа
         if kb_lines:
             knowledge_hint = "Подсказки из базы знаний:\n" + "\n".join(kb_lines)

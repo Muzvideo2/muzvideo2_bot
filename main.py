@@ -843,9 +843,8 @@ def generate_and_send_response(conv_id, vk):
     # ========== 1. Сначала сохраняем сообщение пользователя как "user" ==========
     # (В БД и в локальном кеш)
     # - Если нужно, перед этим вы можете анализировать e-mail/телефон и т.п.
-    (client_data = get_client_info(combined_text, user_id)) - если требуется
-    client_data = ""
-
+    client_data = get_client_info(combined_text, user_id)
+    
     store_dialog_in_db(user_id, "user", combined_text, client_data)
     dialog_history.append({"user": combined_text, "client_info": client_data})
 

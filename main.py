@@ -790,6 +790,9 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
         op_timer = threading.Timer(15 * 60, clear_operator_timer, args=(conv_id,))
         operator_timers[conv_id] = op_timer
         op_timer.start()
+    # Проверяем, не моё ли это сообщение
+    if role == "user" and user_id == OPERATOR_ID:
+        logging.info("[handle_new_message] Сообщение от владельца бота, пропускаем таймер.")
     elif role == "user":
         # Обновляем только клиентский таймер на 60 секунд.
         if conv_id in client_timers:

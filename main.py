@@ -793,6 +793,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     # Проверяем, не моё ли это сообщение
     if role == "user" and user_id == OPERATOR_ID:
         logging.info("[handle_new_message] Сообщение от владельца бота, пропускаем таймер.")
+        generate_and_send_response(conv_id, vk)
     elif role == "user":
         # Обновляем только клиентский таймер на 60 секунд.
         if conv_id in client_timers:

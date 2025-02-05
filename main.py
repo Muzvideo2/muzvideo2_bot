@@ -770,7 +770,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
 
     # Сохраняем запись в базу данных и добавляем в диалоговую историю (в памяти)
     store_dialog_in_db(conv_id, role, text)
-    dialog_history.append({role: text})
+    dialog_history.append({role: text, "timestamp": formatted_time})
 
     # Обновляем лог-файл на Яндекс.Диске
     try:

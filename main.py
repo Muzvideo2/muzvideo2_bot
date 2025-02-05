@@ -33,6 +33,11 @@ VK_COMMUNITY_ID = "48116621"
 # Настройка логгера
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
+#Некоторые глобальные переменные:
+
+operator_timers = {}  # Для хранения таймеров оператора по conv_id
+client_timers = {}    # Для хранения таймеров клиента по conv_id
+
 # ==============================
 # Пути к файлам
 # ==============================
@@ -510,12 +515,18 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
     history_lines = []
     last_line = None
     for turn in dialog_history:
+        # Если в записи есть отметка времени, используем её
+        ts = turn.get("timestamp", "")
+        if ts:
+            ts_str = f"[{ts}] "
+        else:
+            ts_str = ""
         if "user" in turn:
-            line = f"{first_name}: {turn['user'].strip()}"
+            line = f"{ts_str}{first_name}: {turn['user'].strip()}"
         elif "operator" in turn:
-            line = f"Оператор: {turn['operator'].strip()}"
+            line = f"{ts_str}Оператор: {turn['operator'].strip()}"
         elif "bot" in turn:
-            line = f"Модель: {turn['bot'].strip()}"
+            line = f"{ts_str}Модель: {turn['bot'].strip()}"
         else:
             continue
         if line == last_line:
@@ -531,10 +542,12 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
     if relevant_titles:
         kb_lines = []
         for key in relevant_titles:
-            if key in knowledge_base:
-                kb_lines.append(f"{key} -> {knowledge_base[key]}")
+            k = key.strip()  # удаляем лишние пробелы и символы перевода строки
+            if k in knowledge_base:
+                value = str(knowledge_base[k]).strip()  # убеждаемся, что значение тоже без лишних символов
+                kb_lines.append(f"{k} -> {value}")
             else:
-                kb_lines.append(f"{key}")
+                kb_lines.append(f"{k}")
         if kb_lines:
             knowledge_hint = "Подсказки из базы знаний:\n" + "\n".join(kb_lines)
 
@@ -660,6 +673,16 @@ def is_user_paused(full_name):
 # 11. ОБРАБОТКА ПОСТУПИВШЕГО СООБЩЕНИЯ
 # =====================================
 
+def clear_operator_timer(conv_id):
+    """
+    Вызывается по истечении 15 минут после последнего сообщения оператора.
+    Просто удаляет запись об операторском таймере для данного диалога,
+    позволяя клиентскому таймеру запускать генерацию ответа.
+    """
+    if conv_id in operator_timers:
+        del operator_timers[conv_id]
+        logging.info(f"Операторский таймер для диалога {conv_id} истёк, сбрасываем.")
+
 def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     """
     Обрабатывает новое сообщение в диалоге.
@@ -764,15 +787,25 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     except Exception as e:
         logging.error(f"Ошибка загрузки лог-файла {log_file_path} на Яндекс.Диск: {e}")
 
-    # Если сообщение от пользователя, добавляем его в буфер для генерации ответа и перезапускаем таймер
-    if role == "user":
-        user_buffers.setdefault(conv_id, []).append(text)
-        last_questions[conv_id] = text
-        if conv_id in user_timers:
-            user_timers[conv_id].cancel()
-        timer = threading.Timer(DELAY_SECONDS, generate_and_send_response, args=(conv_id, vk))
-        user_timers[conv_id] = timer
-        timer.start()
+    # Настройка таймеров задержки после сообщений от оператора или клиента
+    # Всегда добавляем сообщение в буфер и обновляем last_questions
+    user_buffers.setdefault(conv_id, []).append(text)
+    last_questions[conv_id] = text
+
+    if role == "operator":
+        # Обновляем только операторский таймер на 15 минут.
+        if conv_id in operator_timers:
+            operator_timers[conv_id].cancel()
+        op_timer = threading.Timer(15 * 60, clear_operator_timer, args=(conv_id,))
+        operator_timers[conv_id] = op_timer
+        op_timer.start()
+    elif role == "user":
+        # Обновляем только клиентский таймер на 60 секунд.
+        if conv_id in client_timers:
+            client_timers[conv_id].cancel()
+        cl_timer = threading.Timer(60, generate_and_send_response, args=(conv_id, vk))
+        client_timers[conv_id] = cl_timer
+        cl_timer.start()
 
     # Если входящее сообщение содержит слово "оператор" и это не первое сообщение, отправляем уведомление оператору
     if role == "user" and "оператор" in text.lower() and len(dialog_history) > 1:
@@ -782,20 +815,24 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
                                    first_name=first_name, last_name=last_name)
 
 
-def generate_and_send_response(user_id, vk):
+def generate_and_send_response(conv_id, vk):
     """
     По истечении DELAY_SECONDS формируем единый текст (из user_buffers), генерируем ответ,
     добавляем обе реплики (user + bot) в БД/память, а затем отправляем сообщение через VK.
     """
 
     # Если в буфере нет сообщений - ничего не делаем
-    msgs = user_buffers.get(user_id, [])
-    if not msgs:
+    # Если операторский таймер ещё активен, значит оператор писал недавно – не отвечаем.
+    if conv_id in operator_timers:
+        logging.info(f"Операторский таймер активен для диалога {conv_id}. Не генерируем ответ.")
+        user_buffers[conv_id] = []  # очищаем буфер
         return
 
-    # Собираем их в единый текст
+    msgs = user_buffers.get(conv_id, [])
+    if not msgs:
+        return
     combined_text = "\n".join(msgs).strip()
-    user_buffers[user_id] = []  # очищаем буфер
+    user_buffers[conv_id] = []
 
     dialog_history = dialog_history_dict[user_id]
 
@@ -806,7 +843,7 @@ def generate_and_send_response(user_id, vk):
     # ========== 1. Сначала сохраняем сообщение пользователя как "user" ==========
     # (В БД и в локальном кеш)
     # - Если нужно, перед этим вы можете анализировать e-mail/телефон и т.п.
-    #   (client_data = get_client_info(combined_text, user_id)) - если требуется
+    (client_data = get_client_info(combined_text, user_id)) - если требуется
     client_data = ""
 
     store_dialog_in_db(user_id, "user", combined_text, client_data)

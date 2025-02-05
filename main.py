@@ -365,7 +365,6 @@ def save_callback_payload(data):
 # =================================
 
 def store_dialog_in_db(conv_id, role, message_with_timestamp, client_info=""):
-    """Сохраняет сообщение С timestamp-ом в базу данных."""
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
@@ -428,14 +427,14 @@ def load_dialog_from_db(conv_id):
 # ==============================
 # 7. ЛОГИРОВАНИЕ
 # ==============================
-def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, conv_id, full_name="", client_info=""):
+def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, conv_id, full_name="", client_info="", timestamp=""):
     """
     Логирует в локальный файл и сохраняет каждое сообщение в базу данных.
     Сообщения от пользователя и от бота сохраняются по отдельности.
     """
     # Сохраняем сообщение пользователя и ответа бота в БД
-    store_dialog_in_db(conv_id, "user", user_question, client_info)
-    store_dialog_in_db(conv_id, "bot", bot_response, client_info)
+    store_dialog_in_db(conv_id, "user", user_question, client_info, timestamp)
+    store_dialog_in_db(conv_id, "bot", bot_response, client_info, timestamp)
 
     current_time = datetime.utcnow() + timedelta(hours=6)
     formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
@@ -506,28 +505,23 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
          "<Имя отправителя>: <сообщение>"
     Подсказки из knowledge_base включаются в формате "ключ -> значение".
     """
-    # Собираем историю диалога, исключая последовательные дубликаты
     history_lines = []
-    last_line = None
+    last_line = None  # Для отслеживания последнего сообщения
     for turn in dialog_history:
-        # Если в записи есть отметка времени, используем её
-        ts = turn.get("timestamp", "")
-        if ts:
-            ts_str = f"[{ts}] "
-        else:
-            ts_str = ""
         if "user" in turn:
-            line = f"{ts_str}{first_name}: {turn['user'].strip()}"
+            line = f"{first_name}: {turn['user'].strip()}"
         elif "operator" in turn:
-            line = f"{ts_str}Оператор: {turn['operator'].strip()}"
+            line = f"Оператор: {turn['operator'].strip()}"
         elif "bot" in turn:
-            line = f"{ts_str}Модель: {turn['bot'].strip()}"
+            line = f"Модель: {turn['bot'].strip()}"
         else:
             continue
-        if line == last_line:
+
+        if line == last_line:  # Проверяем на дубликат
             continue
+
         history_lines.append(line)
-        last_line = line
+        last_line = line  # Запоминаем текущее сообщение
 
     history_text = "\n\n".join(history_lines)
 
@@ -755,6 +749,12 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     # Формируем строку для записи в лог-файл
     current_time = datetime.utcnow() + timedelta(hours=6)
     formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
+    message_with_timestamp = f"[{formatted_time}] {text}"
+    
+    # Сохраняем сообщение с timestamp в БД и в dialog_history
+    store_dialog_in_db(conv_id, role, message_with_timestamp, client_info)  # Используем message_with_timestamp
+    dialog_history.append({role: message_with_timestamp}) # Добавляем message_with_timestamp
+    
     if role == "user":
         log_entry = f"[{formatted_time}] {display_name}: {text}\n"
     elif role == "operator":
@@ -768,9 +768,9 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     except Exception as e:
         logging.error(f"Ошибка записи в лог-файл {log_file_path}: {e}")
 
-    # Сохраняем запись в базу данных и добавляем в диалоговую историю (в памяти)
-    store_dialog_in_db(conv_id, role, text)
-    dialog_history.append({role: text, "timestamp": formatted_time})
+    # Сохраняем сообщение с timestamp в БД и в dialog_history
+    store_dialog_in_db(conv_id, role, message_with_timestamp, client_info)
+    dialog_history.append({role: message_with_timestamp})
 
     # Обновляем лог-файл на Яндекс.Диске
     try:

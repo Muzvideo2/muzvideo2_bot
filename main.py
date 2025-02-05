@@ -37,6 +37,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 operator_timers = {}  # Для хранения таймеров оператора по conv_id
 client_timers = {}    # Для хранения таймеров клиента по conv_id
+dialog_history_dict = {} # {conv_id: [...]}
+user_names = {} # {(conv_id: (first_name, last_name))}
+user_log_files = {} # {conv_id: "путь к лог-файлу"}
+user_buffers = {}
+user_timers = {}
+last_questions = {}
 
 # ==============================
 # Пути к файлам
@@ -62,13 +68,6 @@ with open(prompt_path, "r", encoding="utf-8") as f:
 # ==============================
 gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
 
-# Для хранения истории диалогов (по user_id)
-dialog_history_dict = {}
-
-# Для хранения (user_id -> (first_name, last_name)) и (user_id -> путь к лог-файлу)
-user_names = {}
-user_log_files = {}
-
 # Лог-файл по умолчанию (используем, пока не знаем имени пользователя)
 log_file_path = os.path.join(
     logs_directory,
@@ -79,16 +78,16 @@ log_file_path = os.path.join(
 # 1. ФУНКЦИЯ ПОИСКА ПОКУПОК КЛИЕНТОВ, ЕСЛИ В ЗАПРОСЕ ЕСТЬ ЕМЕЙЛ ИЛИ ТЕЛЕФОН
 # =========================================================================
 
-def get_client_info(user_question, user_id):
+def get_client_info(user_question, conv_id):
     """
     Анализирует текст user_question на предмет email или номера телефона.
     Если они найдены, ищет информацию о клиенте в Excel-файле "clients.xlsx".
     Возвращает строку со всеми найденными данными или сообщает, что ничего не найдено.
     Учитывает, что у клиента может быть несколько покупок (строк).
     """
-    
+
     client_info = ""  # Очищаем перед каждым новым запросом
-    
+
     # Рег. выражения для email и телефона
     email_regex = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
     phone_regex = r"(?:\+7|7|8)?[\s\-]?\(?(\d{3})\)?[\s\-]?(\d{3})[\s\-]?(\d{2})[\s\-]?(\d{2})"
@@ -97,7 +96,7 @@ def get_client_info(user_question, user_id):
     emails = re.findall(email_regex, user_question)
     phones = re.findall(phone_regex, user_question)
 
-    logging.info(f"Пользователь {user_id}: Запрошен поиск в таблице.")
+    logging.info(f"Пользователь {conv_id}: Запрошен поиск в таблице.")
 
     # Открываем Excel
     try:
@@ -110,8 +109,8 @@ def get_client_info(user_question, user_id):
     # --- Поиск по email ---
     for email in emails:
         email_lower = email.lower().strip()
-        logging.info(f"Пользователь {user_id}: Ищем данные по e-mail {email_lower}.")
-        
+        logging.info(f"Пользователь {conv_id}: Ищем данные по e-mail {email_lower}.")
+
         # Сделаем заголовок (для наглядности, если несколько емейлов)
         client_info += f"\n=== Результат поиска по e-mail: {email_lower} ===\n"
         email_found = False
@@ -120,31 +119,27 @@ def get_client_info(user_question, user_id):
             # row — это кортеж вида (A, B, C, D, E, F, ...)
             # Предположим, что E=4 (A=0,B=1,C=2,D=3,E=4,F=5).
             # Если колонка E - это email, берём row[4], проверяем:
-            
+
             # Пустая ячейка будет None, поэтому:
             cell_value = (row[4] or "") if len(row) > 4 else ""
             cell_value_lower = str(cell_value).lower().strip()
-
-            # Дополнительно можно вывести отладку, чтобы видеть, что читаем
-            # logging.debug(f"Строка {row_index}: {row}")  
-            # (закомментируйте или включите по необходимости)
 
             if cell_value_lower == email_lower:
                 # Формируем строку со всеми данными, убирая None
                 client_data = ", ".join(str(x) for x in row if x is not None)
                 client_info += f"- {client_data}\n"
                 email_found = True
-        
+
         if not email_found:
             client_info += "  Ничего не найдено\n"
-            logging.warning(f"Пользователь {user_id}: Не найдены данные по e-mail {email_lower}.")
+            logging.warning(f"Пользователь {conv_id}: Не найдены данные по e-mail {email_lower}.")
 
     # --- Поиск по телефону ---
     for phone_tuple in phones:
         # phone_tuple — это кортеж из рег. выражения (три группы по 3,2,2 цифры)
         # Например, ("905", "787", "89", "61")
         digits_only = "".join(filter(str.isdigit, "".join(phone_tuple)))
-        logging.info(f"Пользователь {user_id}: Ищем данные по телефону (цифры): {digits_only}.")
+        logging.info(f"Пользователь {conv_id}: Ищем данные по телефону (цифры): {digits_only}.")
 
         client_info += f"\n=== Результат поиска по телефону: {digits_only} ===\n"
         phone_found = False
@@ -159,10 +154,10 @@ def get_client_info(user_question, user_id):
                 client_data = ", ".join(str(x) for x in row if x is not None)
                 client_info += f"- {client_data}\n"
                 phone_found = True
-        
+
         if not phone_found:
             client_info += "  Ничего не найдено\n"
-            logging.warning(f"Пользователь {user_id}: Не найдены данные по телефону {digits_only}.")
+            logging.warning(f"Пользователь {conv_id}: Не найдены данные по телефону {digits_only}.")
 
     # Если в тексте не было ни email, ни телефона, client_info останется пустым
     return client_info.strip()
@@ -331,7 +326,7 @@ def upload_log_to_yandex_disk(log_file_path):
     if upload_resp.status_code == 201:
         logging.info(f"Лог-файл '{file_name}' успешно загружен на Яндекс.Диск.")
     else:
-        logging.error(f"Ошибка {upload_resp.status_code} при загрузке '{file_name}' на Яндекс.Диск: {upload_resp.text}")
+logging.error(f"Ошибка {upload_resp.status_code} при загрузке '{file_name}' на Яндекс.Диск: {upload_resp.text}")
 
 
 # ================================================================================
@@ -369,7 +364,7 @@ def save_callback_payload(data):
 # 6. СОХРАНЕНИЕ ДИАЛОГОВ В POSTGRES
 # =================================
 
-def store_dialog_in_db(user_id, role, message, client_info=""):
+def store_dialog_in_db(conv_id, role, message, client_info=""):
     """
     Сохраняет одно сообщение (от пользователя, бота или оператора) в базу PostgreSQL.
     Поле role должно принимать значение "user", "bot" или "operator".
@@ -381,7 +376,7 @@ def store_dialog_in_db(user_id, role, message, client_info=""):
         cur.execute("""
             CREATE TABLE IF NOT EXISTS dialogues (
                 id SERIAL PRIMARY KEY,
-                user_id BIGINT,
+                conv_id BIGINT,
                 role TEXT,
                 message TEXT,
                 client_info TEXT,
@@ -390,9 +385,9 @@ def store_dialog_in_db(user_id, role, message, client_info=""):
         """)
         # Вставка записи
         cur.execute(
-            """INSERT INTO dialogues (user_id, role, message, client_info)
+            """INSERT INTO dialogues (conv_id, role, message, client_info)
                VALUES (%s, %s, %s, %s)""",
-            (user_id, role, message, client_info)
+            (conv_id, role, message, client_info)
         )
         conn.commit()
         cur.close()
@@ -401,9 +396,9 @@ def store_dialog_in_db(user_id, role, message, client_info=""):
         logging.error(f"Ошибка при сохранении диалога в БД: {e}")
 
 
-def load_dialog_from_db(user_id):
+def load_dialog_from_db(conv_id):
     """
-    Подгружает из БД всю историю сообщений для указанного user_id.
+    Подгружает из БД всю историю сообщений для указанного conv_id.
     Каждая запись возвращается в виде словаря с ключами, соответствующими роли сообщения,
     и дополнительным полем "client_info" (если оно было сохранено).
     Пример: {"user": "текст", "client_info": "..."} или {"operator": "текст", "client_info": "..."}
@@ -415,9 +410,9 @@ def load_dialog_from_db(user_id):
         cur.execute("""
             SELECT role, message, client_info
             FROM dialogues
-            WHERE user_id = %s
+            WHERE conv_id = %s
             ORDER BY id ASC
-        """, (user_id,))
+        """, (conv_id,))
         rows = cur.fetchall()
         for row in rows:
             role, message, client_info = row
@@ -425,7 +420,7 @@ def load_dialog_from_db(user_id):
         cur.close()
         conn.close()
     except Exception as e:
-        logging.error(f"Ошибка при загрузке диалога из БД для user_id={user_id}: {e}")
+        logging.error(f"Ошибка при загрузке диалога из БД для conv_id={conv_id}: {e}")
     return dialog_history
 
 
@@ -433,21 +428,21 @@ def load_dialog_from_db(user_id):
 # ==============================
 # 7. ЛОГИРОВАНИЕ
 # ==============================
-def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, user_id, full_name="", client_info=""):
+def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, conv_id, full_name="", client_info=""):
     """
     Логирует в локальный файл и сохраняет каждое сообщение в базу данных.
     Сообщения от пользователя и от бота сохраняются по отдельности.
     """
     # Сохраняем сообщение пользователя и ответа бота в БД
-    store_dialog_in_db(user_id, "user", user_question, client_info)
-    store_dialog_in_db(user_id, "bot", bot_response, client_info)
+    store_dialog_in_db(conv_id, "user", user_question, client_info)
+    store_dialog_in_db(conv_id, "bot", bot_response, client_info)
 
     current_time = datetime.utcnow() + timedelta(hours=6)
     formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
 
     # Определяем лог-файл для пользователя
-    if user_id in user_log_files:
-        local_log_file = user_log_files[user_id]
+    if conv_id in user_log_files:
+        local_log_file = user_log_files[conv_id]
     else:
         local_log_file = log_file_path
 
@@ -695,12 +690,6 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
       - conv_id: идентификатор диалога. Для входящих — msg["from_id"],
                 для исходящих — msg.get("peer_id", msg["from_id"]). Все реплики одного диалога записываются в один лог‑файл.
 
-    Логика:
-      1. Если исходящее сообщение имеет отрицательный user_id (сообщение бота) – пропускаем.
-      2. Роль определяется: для входящих — "user", для исходящих, если user_id == OPERATOR_ID, то "operator".
-      3. Если это первое входящее сообщение (история пуста) и текст не содержит "оператор", отправляем уведомление в Telegram.
-      4. Если входящее сообщение дублируется (после strip) с последним сообщением с ролью "user", пропускаем его.
-      5. Все записи добавляются в единый лог‑файл для данного conv_id, сохраняются в БД и в памяти.
     """
     OPERATOR_ID = 78671089
 
@@ -834,18 +823,16 @@ def generate_and_send_response(conv_id, vk):
     combined_text = "\n".join(msgs).strip()
     user_buffers[conv_id] = []
 
-    dialog_history = dialog_history_dict[user_id]
+    dialog_history = dialog_history_dict[conv_id]
 
     # Определяем имя пользователя
-    f_name, l_name = user_names.get(user_id, ("", ""))
+    f_name, l_name = user_names.get(conv_id, ("", ""))
     full_name = f"{f_name}_{l_name}".strip("_")
 
     # ========== 1. Сначала сохраняем сообщение пользователя как "user" ==========
-    # (В БД и в локальном кеш)
-    # - Если нужно, перед этим вы можете анализировать e-mail/телефон и т.п.
-    client_data = get_client_info(combined_text, user_id)
-    
-    store_dialog_in_db(user_id, "user", combined_text, client_data)
+    client_data = get_client_info(combined_text, conv_id)
+
+    store_dialog_in_db(conv_id, "user", combined_text, client_data)
     dialog_history.append({"user": combined_text, "client_info": client_data})
 
     # ========== 2. Генерируем ответ модели (используя вашу функцию generate_response) ==========
@@ -863,20 +850,19 @@ def generate_and_send_response(conv_id, vk):
     )
 
     # ========== 3. Теперь СРАЗУ добавляем ответ бота в БД и в кеш как "bot" ==========
-    store_dialog_in_db(user_id, "bot", model_response, client_data)
+    store_dialog_in_db(conv_id, "bot", model_response, client_data)
     dialog_history.append({"bot": model_response, "client_info": client_data})
 
     # ========== 4. Локальное логирование (если нужно) ==========
-    # (Можете использовать ваш log_dialog, но обязательно до vk.messages.send)
     current_time = datetime.utcnow() + timedelta(hours=6)
     formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
 
-    if user_id not in user_log_files:
+    if conv_id not in user_log_files:
         now_str = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
         file_name = f"dialog_{now_str}_{full_name}.txt"
-        user_log_files[user_id] = os.path.join(logs_directory, file_name)
+        user_log_files[conv_id] = os.path.join(logs_directory, file_name)
 
-    local_log_path = user_log_files[user_id]
+    local_log_path = user_log_files[conv_id]
     with open(local_log_path, "a", encoding="utf-8") as log_file:
         # Логируем сообщение пользователя
         log_file.write(f"[{formatted_time}] {f_name}: {combined_text}\n")
@@ -889,7 +875,7 @@ def generate_and_send_response(conv_id, vk):
     # ========== 5. Наконец отправляем сообщение через VK (с бот-ответом) ==========
     if vk:
         vk.messages.send(
-            user_id=user_id,
+            user_id=conv_id,
             message=model_response,
             random_id=int(time.time() * 1000)
         )
@@ -910,31 +896,31 @@ def clear_context(full_name):
     """
     Удаляет контекст пользователя из базы данных и локального кеша.
     """
-    user_id = None
+    conv_id = None
 
-    # Найти user_id по имени и фамилии
-    for uid, (first, last) in user_names.items():
+    # Найти conv_id по имени и фамилии
+    for cid, (first, last) in user_names.items():
         if f"{first}_{last}" == full_name:
-            user_id = uid
+            conv_id = cid
             break
 
-    if not user_id:
+    if not conv_id:
         return "Пользователь не найден", 404
 
     try:
         # Удаление из базы данных
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
-        cur.execute("DELETE FROM dialogues WHERE user_id = %s", (user_id,))
+        cur.execute("DELETE FROM dialogues WHERE conv_id = %s", (conv_id,))
         conn.commit()
         cur.close()
         conn.close()
 
         # Удаление из кеша
-        dialog_history_dict.pop(user_id, None)
-        user_buffers.pop(user_id, None)
-        user_timers.pop(user_id, None)
-        last_questions.pop(user_id, None)
+        dialog_history_dict.pop(conv_id, None)
+        user_buffers.pop(conv_id, None)
+        user_timers.pop(conv_id, None)
+        last_questions.pop(conv_id, None)
 
         return "Контекст успешно очищен", 200
     except Exception as e:
@@ -1023,8 +1009,6 @@ def callback():
 
     # 12. Возвращаем "ok"
     return "ok"
-
-
 
 @app.route('/ping', methods=['GET'])
 def ping():

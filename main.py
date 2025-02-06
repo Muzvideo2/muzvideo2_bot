@@ -490,11 +490,12 @@ def log_dialog(user_question, bot_response, relevant_titles, relevant_answers, c
 def find_relevant_titles_with_gemini(user_question):
     titles = list(knowledge_base.keys())
     prompt_text = f"""
-Вот список вопросов-ключей:
+Вот список вопросов-ключей (каждый вопрос - уникальный элемент):
 {', '.join(titles)}
 
-Найди три наиболее релевантных вопроса к запросу: "{user_question}".
-Верни только сами вопросы, без пояснений и изменений.
+Выбери ИЗ ЭТОГО СПИСКА три наиболее релевантных вопроса к запросу: "{user_question}".
+Ни в коем случае не выдумывай новых вопросов и не меняй формулировки!
+Верни вопросы-ключи СТРОГО по одному в каждой строке, без пояснений и без номеров.
     """.strip()
 
     data = {

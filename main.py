@@ -840,7 +840,7 @@ def generate_and_send_response(conv_id, vk):
     relevant_titles = find_relevant_titles_with_gemini(combined_text)
     relevant_answers = [knowledge_base[t] for t in relevant_titles if t in knowledge_base]
 
-    # Далее, передаём found_data МОДЕЛИ — в качестве client_data
+    # Передаём found_data только в промпт модели
     model_response = generate_response(
         user_question=combined_text,
         client_data=found_data,  # <--- только в промпт
@@ -850,16 +850,16 @@ def generate_and_send_response(conv_id, vk):
         relevant_answers=relevant_answers,
         relevant_titles=relevant_titles
     )
-    # Теперь ответ модели сохраняем в базу ДАННЫХ, но уже без found_data:
+    
+    # ========== 1. Теперь сохраняем сообщение пользователя в БД и кеш, но БЕЗ found_data ==========
+    store_dialog_in_db(conv_id, "user", combined_text, client_info="") 
+    dialog_history.append({"user": combined_text})  # без поля "client_info"
 
-    store_dialog_in_db(conv_id, "user", combined_text, client_data)
-    dialog_history.append({"user": combined_text, "client_info": client_data})
-
-    # ========== 3. Теперь СРАЗУ добавляем ответ бота в БД и в кеш как "bot" ==========
-    store_dialog_in_db(conv_id, "bot", model_response, client_data)
-    dialog_history.append({"bot": model_response, "client_info": client_data})
-
-    # ========== 4. Локальное логирование (если нужно) ==========
+    # ========== 2. Добавляем ответ бота в БД и кеш как "bot", тоже БЕЗ found_data ==========
+    store_dialog_in_db(conv_id, "bot", model_response, client_info="")
+    dialog_history.append({"bot": model_response})  # без поля "client_info"
+    
+    # ========== 3. Локальное логирование ==========
     current_time = datetime.utcnow() + timedelta(hours=6)
     formatted_time = current_time.strftime("%Y-%m-%d_%H-%M-%S")
 
@@ -878,7 +878,7 @@ def generate_and_send_response(conv_id, vk):
 
     upload_log_to_yandex_disk(local_log_path)
 
-    # ========== 5. Наконец отправляем сообщение через VK (с бот-ответом) ==========
+    # ========== 4. Наконец отправляем сообщение через VK (с бот-ответом) ==========
     if vk:
         vk.messages.send(
             user_id=conv_id,

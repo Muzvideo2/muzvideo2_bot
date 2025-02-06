@@ -536,14 +536,18 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
             #Убираем запятые и точки в конце, а также лишние пробелы
             k_clean = k.rstrip(',.').strip()
             
+            #Сначала проверяем k_clean, если не нашли — пробуем k как есть
             if k_clean in knowledge_base:
                 value = str(knowledge_base[k_clean]).strip()
-                # (ИЗМЕНЕНО) В kb_lines добавляем "красивый" исходный k (чтобы
-                # пользователь видел тот же самый текст, который вернулся из Gemini)
+                kb_lines.append(f"{k} -> {value}")
+                logging.info(f"Добавлено в kb_lines: '{k} -> {value}'")
+            elif k in knowledge_base:
+                value = str(knowledge_base[k]).strip()
                 kb_lines.append(f"{k} -> {value}")
                 logging.info(f"Добавлено в kb_lines: '{k} -> {value}'")
             else:
-                logging.warning(f"Ключ '{k_clean}' отсутствует в knowledge_base") # Логируем отсутствие ключа
+                logging.warning(f"Ключ '{k}' (очищенный='{k_clean}') отсутствует в knowledge_base")
+            
         if kb_lines:
             knowledge_hint = "Подсказки из базы знаний:\n" + "\n".join(kb_lines)
 

@@ -74,6 +74,29 @@ log_file_path = os.path.join(
     f"dialog_{datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')}_unknown_user.txt"
 )
 
+#============================================================================
+# Функция, убирающая любую «хвостовую» пунктуацию или спецсимволы из ключа БЗ 
+#============================================================================
+
+def remove_trailing_punctuation(text: str) -> str:
+    pattern = r'[^\w\s]+$'
+    # Это значит: «одна или несколько НЕ-буквенных и НЕ-пробельных подряд в конце строки»
+    return re.sub(pattern, '', text).strip()
+
+#========================================================
+# Функция, которая пытается найти ключ в knowledge_base 
+#========================================================
+
+# ключ, у которого "очищенная" версия совпадает с "очищенной" версией user_key.
+def match_kb_key_ignoring_trailing_punc(user_key: str, knowledge_base: dict) -> str | None:
+    user_clean = remove_trailing_punctuation(user_key)
+    for kb_key in knowledge_base:
+        kb_clean = remove_trailing_punctuation(kb_key)
+        if kb_clean == user_clean:
+            return kb_key  # Возвращаем реальный ключ из базы (как записан в JSON)
+    return None
+
+
 # =========================================================================
 # 1. ФУНКЦИЯ ПОИСКА ПОКУПОК КЛИЕНТОВ, ЕСЛИ В ЗАПРОСЕ ЕСТЬ ЕМЕЙЛ ИЛИ ТЕЛЕФОН
 # =========================================================================
@@ -533,20 +556,17 @@ def generate_response(user_question, client_data, dialog_history, custom_prompt,
         for key in relevant_titles:
             k = key.strip()  # удаляем лишние пробелы и символы перевода строки
             logging.info(f"Обрабатывается ключ: '{k}'") # Логируем ключ
-            #Убираем запятые и точки в конце, а также лишние пробелы
-            k_clean = k.rstrip(',.').strip()
             
-            #Сначала проверяем k_clean, если не нашли — пробуем k как есть
-            if k_clean in knowledge_base:
-                value = str(knowledge_base[k_clean]).strip()
-                kb_lines.append(f"{k} -> {value}")
-                logging.info(f"Добавлено в kb_lines: '{k} -> {value}'")
-            elif k in knowledge_base:
-                value = str(knowledge_base[k]).strip()
+            # Вызываем нашу функцию match_kb_key_ignoring_trailing_punc:
+            matched_key = match_kb_key_ignoring_trailing_punc(k, knowledge_base)
+            if matched_key is not None:
+                # Значит база содержит такой ключ (игнорируя хвостовую пунктуацию)
+                value = str(knowledge_base[matched_key]).strip()
                 kb_lines.append(f"{k} -> {value}")
                 logging.info(f"Добавлено в kb_lines: '{k} -> {value}'")
             else:
-                logging.warning(f"Ключ '{k}' (очищенный='{k_clean}') отсутствует в knowledge_base")
+                # Ни один ключ не подошёл
+                logging.warning(f"Ключ '{k}' отсутствует в knowledge_base (даже игнорируя пунктуацию).")
             
         if kb_lines:
             knowledge_hint = "Подсказки из базы знаний:\n" + "\n".join(kb_lines)

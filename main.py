@@ -752,7 +752,7 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
     message_with_timestamp = f"[{formatted_time}] {text}"
     
     # Сохраняем сообщение с timestamp в БД и в dialog_history
-    store_dialog_in_db(conv_id, role, message_with_timestamp, client_info)  # Используем message_with_timestamp
+    store_dialog_in_db(conv_id, role, message_with_timestamp, client_info="")  # Используем message_with_timestamp
     dialog_history.append({role: message_with_timestamp}) # Добавляем message_with_timestamp
     
     if role == "user":
@@ -767,10 +767,6 @@ def handle_new_message(user_id, text, vk, is_outgoing=False, conv_id=None):
             log_file.write(log_entry)
     except Exception as e:
         logging.error(f"Ошибка записи в лог-файл {log_file_path}: {e}")
-
-    # Сохраняем сообщение с timestamp в БД и в dialog_history
-    store_dialog_in_db(conv_id, role, message_with_timestamp, client_info)
-    dialog_history.append({role: message_with_timestamp})
 
     # Обновляем лог-файл на Яндекс.Диске
     try:
@@ -826,34 +822,38 @@ def generate_and_send_response(conv_id, vk):
     msgs = user_buffers.get(conv_id, [])
     if not msgs:
         return
+    # Берём все пользовательские сообщения (накопленные за DELAY_SECONDS)
     combined_text = "\n".join(msgs).strip()
     user_buffers[conv_id] = []
-
-    dialog_history = dialog_history_dict[conv_id]
 
     # Определяем имя пользователя
     f_name, l_name = user_names.get(conv_id, ("", ""))
     full_name = f"{f_name}_{l_name}".strip("_")
 
-    # ========== 1. Сначала сохраняем сообщение пользователя как "user" ==========
-    client_data = get_client_info(combined_text, conv_id)
+    # -- Вот ЗДЕСЬ получаем данные по email / телефону --
+    found_data = get_client_info(combined_text, conv_id)
+    
+    # Загружаем историю диалога из dialog_history ( *уже* без client_info )
+    dialog_history = dialog_history_dict[conv_id]
 
-    store_dialog_in_db(conv_id, "user", combined_text, client_data)
-    dialog_history.append({"user": combined_text, "client_info": client_data})
-
-    # ========== 2. Генерируем ответ модели (используя вашу функцию generate_response) ==========
+    # Генерируем ответ модели (используя функцию generate_response)
     relevant_titles = find_relevant_titles_with_gemini(combined_text)
     relevant_answers = [knowledge_base[t] for t in relevant_titles if t in knowledge_base]
 
+    # Далее, передаём found_data МОДЕЛИ — в качестве client_data
     model_response = generate_response(
         user_question=combined_text,
-        client_data=client_data,
+        client_data=found_data,  # <--- только в промпт
         dialog_history=dialog_history,
         custom_prompt=custom_prompt,
         first_name=f_name,
         relevant_answers=relevant_answers,
         relevant_titles=relevant_titles
     )
+    # Теперь ответ модели сохраняем в базу ДАННЫХ, но уже без found_data:
+
+    store_dialog_in_db(conv_id, "user", combined_text, client_data)
+    dialog_history.append({"user": combined_text, "client_info": client_data})
 
     # ========== 3. Теперь СРАЗУ добавляем ответ бота в БД и в кеш как "bot" ==========
     store_dialog_in_db(conv_id, "bot", model_response, client_data)

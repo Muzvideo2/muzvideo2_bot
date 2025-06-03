@@ -1293,90 +1293,89 @@ def callback_handler(): # Переименовал callback в callback_handler
 
 
     # 4. Обрабатываем только нужные типы событий (message_new, message_reply)
-    # message_edit можно добавить, если нужна обработка отредактированных сообщений
     if event_type not in ("message_new", "message_reply"):
         logging.info(f"Callback: Пропускаем событие типа '{event_type}'.")
         return "ok", 200
 
-    # 5. Извлечение данных из объекта сообщения
-    vk_message_object = data_from_vk.get("object")
-    if not vk_message_object or not isinstance(vk_message_object, dict):
-        # Для message_new/message_reply 'object' это само сообщение, если версия API < 5.107
-        # Если версия API >= 5.107, то 'object' содержит 'message', который является объектом сообщения
-        if 'message' in vk_message_object and isinstance(vk_message_object['message'], dict):
-            msg_data = vk_message_object['message']
-        else: # Старый формат или неожиданная структура
-            msg_data = vk_message_object 
-        
-        if not msg_data or not isinstance(msg_data, dict):
-             logging.warning(f"Callback: Неправильный формат 'object' или 'object.message' в событии {event_type}: {data_from_vk}")
-             return "ok", 200
-    else: # Если 'object' это напрямую объект сообщения (старые версии API callback)
-        msg_data = vk_message_object
+    # ==== НАЧАЛО ИСПРАВЛЕННОГО БЛОКА ====
+    # 5. Извлечение данных из объекта сообщения (исправленная логика)
+    vk_event_object = data_from_vk.get("object")
+    actual_message_payload = None # Здесь будет словарь с from_id, text и т.д.
 
+    if isinstance(vk_event_object, dict):
+        if 'message' in vk_event_object and isinstance(vk_event_object.get('message'), dict):
+            # Новый формат VK API (>= 5.107), где object содержит вложенный 'message'
+            actual_message_payload = vk_event_object.get('message')
+        else:
+            # Старый формат, где object сам является сообщением, ИЛИ
+            # 'message' есть, но это не словарь (неожиданно, но лучше обработать)
+            # ИЛИ 'message' ключа нет вовсе.
+            # В этих случаях считаем, что vk_event_object и есть полезная нагрузка сообщения.
+            actual_message_payload = vk_event_object
+    else:
+        # vk_event_object отсутствует или не является словарем
+        logging.warning(f"Callback: 'object' отсутствует или не является словарем в событии {event_type}: {data_from_vk}")
+        return "ok", 200
 
-    message_text = msg_data.get("text", "")
-    from_id = msg_data.get("from_id")  # ID отправителя (пользователь или админ при ответе)
-    peer_id = msg_data.get("peer_id")  # ID диалога (куда было отправлено сообщение)
+    if not isinstance(actual_message_payload, dict):
+        # Если после всех попыток мы не получили словарь для actual_message_payload
+        logging.warning(f"Callback: Не удалось извлечь корректный словарь сообщения. Получено: {actual_message_payload}")
+        return "ok", 200
+
+    # Теперь извлекаем данные из actual_message_payload
+    message_text = actual_message_payload.get("text", "")
+    from_id = actual_message_payload.get("from_id")
+    peer_id = actual_message_payload.get("peer_id")
     # 'out': 1 для исходящего, 0 для входящего. Поле есть только у 'message_new'.
-    # 'message_reply' не имеет поля 'out', это всегда ответ от имени сообщества (или админа).
-    is_outgoing = True if msg_data.get("out") == 1 else False 
+    is_outgoing = True if actual_message_payload.get("out") == 1 else False
+    # ==== КОНЕЦ ИСПРАВЛЕННОГО БЛОКА ====
     
     # Для message_reply, from_id это ID администратора, peer_id это ID пользователя, кому ответили.
-    # is_outgoing будет False для message_reply по логике выше (нет поля 'out').
+    # is_outgoing будет False для message_reply по логике выше (нет поля 'out' в actual_message_payload если это reply).
     # Нужно скорректировать определение is_outgoing для message_reply.
     if event_type == "message_reply":
         is_outgoing = True # Ответ оператора из интерфейса VK это всегда "исходящее" с точки зрения логики бота
-        # В message_reply, from_id - это ID админа, а peer_id - это ID пользователя.
+        # В message_reply, from_id (из actual_message_payload) это ID админа, а peer_id - это ID пользователя.
         # Для единообразия, conv_id должен быть ID пользователя.
-        if peer_id:
+        if peer_id: # peer_id из actual_message_payload (это ID пользователя)
             conversation_id_for_handler = peer_id
-            # user_id_for_handler = from_id # Это ID оператора, а не пользователя
-        else: # Не должно быть для message_reply
-            logging.warning(f"Callback (message_reply): отсутствует peer_id. from_id={from_id}")
+        else: 
+            logging.warning(f"Callback (message_reply): отсутствует peer_id. from_id={from_id}, actual_payload={actual_message_payload}")
             return "ok", 200
     elif event_type == "message_new":
         if is_outgoing: # Исходящее от имени бота (например, через API messages.send)
-            # from_id будет ID сообщества, peer_id - ID пользователя
+            # from_id (из actual_message_payload) будет ID сообщества, peer_id - ID пользователя
             conversation_id_for_handler = peer_id
-            # user_id_for_handler = from_id # ID сообщества
         else: # Входящее от пользователя
-            # from_id - ID пользователя, peer_id - тоже ID пользователя (или ID чата, если это беседа)
+            # from_id (из actual_message_payload) - ID пользователя, peer_id - тоже ID пользователя (или ID чата, если это беседа)
             conversation_id_for_handler = from_id # или peer_id, они должны совпадать для ЛС
-            # user_id_for_handler = from_id
     else: # Не должно случиться из-за проверки event_type выше
         return "ok", 200
 
     if not from_id or not conversation_id_for_handler:
-        logging.warning(f"Callback: Не удалось извлечь from_id или определить conversation_id из события {event_type}: {msg_data}")
+        # Эта проверка теперь должна проходиться корректно, если from_id был в actual_message_payload
+        logging.warning(f"Callback: Не удалось извлечь from_id или определить conversation_id. from_id={from_id}, conv_id={conversation_id_for_handler}, payload={actual_message_payload}")
         return "ok", 200
     
     # Пропускаем сообщения без текста (например, стикеры без текстового сопровождения, аудио и т.д.)
-    if not message_text.strip() and not msg_data.get("attachments"): # Если нет текста и нет вложений
+    # Используем actual_message_payload для проверки вложений
+    if not message_text.strip() and not actual_message_payload.get("attachments"): # Если нет текста и нет вложений
         logging.info(f"Callback: Получено пустое сообщение (без текста и вложений) от from_id {from_id} в conv_id {conversation_id_for_handler}. Пропускаем.")
         return "ok", 200
-    elif not message_text.strip() and msg_data.get("attachments"):
+    elif not message_text.strip() and actual_message_payload.get("attachments"):
         # Если есть вложения, но нет текста, можно заменить текст на плейсхолдер
-        message_text = "[Вложение без текста]" # Или более специфично, если анализировать тип вложения
+        message_text = "[Вложение без текста]" 
         logging.info(f"Callback: Сообщение от from_id {from_id} с вложением, но без текста. Установлен плейсхолдер.")
 
-
-    # Создаем объект VK API для передачи в handle_new_message, если он потребуется для ответа
-    # Это нужно только если handle_new_message или generate_and_send_response будут слать через него.
-    # В нашем случае generate_and_send_response использует его.
     vk_session_for_handler = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
     vk_api_local = vk_session_for_handler.get_api()
 
-    # Вызываем основную функцию обработки сообщения
-    # user_id_from_vk = from_id (кто инициировал событие)
-    # conversation_id = ID пользователя, с которым идет диалог
-    # is_outgoing = флаг исходящего сообщения
     handle_new_message(
-        user_id_from_vk=from_id, 
+        user_id_from_vk=from_id, # Это ID того, кто инициировал событие (пользователь или админ в reply)
         message_text_from_vk=message_text, 
         vk_api_object=vk_api_local, 
         is_outgoing_message=is_outgoing, 
-        conversation_id=conversation_id_for_handler
+        conversation_id=conversation_id_for_handler # Это ID пользователя, с которым идет диалог
     )
 
     return "ok", 200

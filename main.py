@@ -4,6 +4,7 @@ import time
 import json
 import requests
 import psycopg2
+import psycopg2.extras
 from datetime import datetime, timedelta
 import threading
 import vk_api

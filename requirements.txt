@@ -3,5 +3,6 @@ psycopg2
 vk_api
 Flask
 openpyxl
+gunicorn
 APScheduler
 

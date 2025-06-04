@@ -5,13 +5,16 @@ import json
 import requests
 import psycopg2
 import psycopg2.extras
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import threading
 import vk_api
-from flask import Flask, request, jsonify # Убедимся, что jsonify импортирован
+from vk_api.longpoll import VkLongPoll, VkEventType
+from vk_api.utils import get_random_id
+from flask import Flask, request, jsonify
 from urllib.parse import quote
-import openpyxl # Если все еще используется для get_client_info
+import openpyxl
 import logging
+from apscheduler.schedulers.background import BackgroundScheduler
 
 # ==============================
 # Читаем переменные окружения (секретные данные)
@@ -116,6 +119,22 @@ def match_kb_key_ignoring_trailing_punc(user_key: str, kb: dict) -> str | None:
         if kb_clean.lower() == user_clean.lower(): # Сравнение без учета регистра
             return kb_key  # Возвращаем реальный ключ из базы (как записан в JSON)
     return None
+
+# ========================================
+# ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ПОДКЛЮЧЕНИЯ К БД
+# ========================================
+def get_main_db_connection():
+    """Устанавливает новое соединение с базой данных, используя DATABASE_URL."""
+    if not DATABASE_URL: # DATABASE_URL должно быть определено глобально
+        logging.error("DATABASE_URL не настроен. Невозможно подключиться к базе данных.")
+        raise ValueError("DATABASE_URL не настроен.") # Генерируем ошибку, чтобы проблема была очевидна
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        logging.debug("Соединение с базой данных успешно установлено.")
+        return conn
+    except psycopg2.Error as e:
+        logging.error(f"Не удалось подключиться к базе данных: {e}")
+        raise # Передаем исключение дальше, чтобы вызывающий код мог его обработать
 
 # =========================================================================
 # 1. ФУНКЦИЯ ПОИСКА ПОКУПОК КЛИЕНТОВ, ЕСЛИ В ЗАПРОСЕ ЕСТЬ ЕМЕЙЛ ИЛИ ТЕЛЕФОН
@@ -941,6 +960,80 @@ def generate_summary_and_reason(dialog_history_list_for_summary): # Переим
     logging.error("Не удалось сгенерировать сводку и причину от Gemini.")
     return "Не удалось сформировать сводку (ошибка сервиса)", "Не удалось определить причину (ошибка сервиса)"
 
+# =====================================
+# 10. ПРОВЕРКА АКТИВНОСТИ ОПЕРАТОРА И ОЧИСТКА (НОВАЯ ФУНКЦИЯ)
+# =====================================
+def check_operator_activity_and_cleanup(conv_id):
+    """
+    Проверяет, был ли оператор недавно активен для данного conv_id.
+    Если активность старше 15 минут, удаляет запись.
+
+    Возвращает:
+        bool: True, если оператор был активен недавно (бот должен сделать паузу), False в противном случае.
+    """
+    logging.info(f"[ПроверкаОператора] Начало проверки активности оператора для conv_id: {conv_id}")
+    conn = None
+    cur = None
+    try:
+        conn = get_main_db_connection() # Используем нашу вспомогательную функцию
+        # DictCursor позволяет обращаться к колонкам по их именам
+        cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor) 
+
+        # Ищем запись о последней активности оператора
+        cur.execute("SELECT last_operator_activity_at FROM operator_activity WHERE conv_id = %s", (conv_id,))
+        record = cur.fetchone()
+
+        if record:
+            last_active_time = record['last_operator_activity_at']
+            
+            # Убеждаемся, что время last_active_time имеет информацию о часовом поясе
+            # (оно должно быть таким, если хранится как TIMESTAMP WITH TIME ZONE и web_interface.py пишет UTC)
+            if last_active_time.tzinfo is None:
+                # Если по какой-то причине оно "наивное" (без tzinfo), предполагаем, что это UTC,
+                # так как web_interface.py сохраняет время в UTC.
+                last_active_time = last_active_time.replace(tzinfo=timezone.utc)
+                logging.warning(f"[ПроверкаОператора] Время last_operator_activity_at для conv_id {conv_id} было без tzinfo, принято как UTC.")
+
+            current_time = datetime.now(timezone.utc) # Текущее время всегда в UTC для сравнения
+            time_since_operator_activity = current_time - last_active_time
+            
+            logging.debug(f"[ПроверкаОператора] conv_id: {conv_id}, Последняя активность оператора: {last_active_time}, Текущее время: {current_time}, Разница: {time_since_operator_activity}")
+
+            if time_since_operator_activity <= timedelta(minutes=15):
+                logging.info(f"[ПроверкаОператора] Оператор был недавно активен для conv_id: {conv_id} (в {last_active_time}). Бот сделает ПАУЗУ.")
+                return True  # Оператор активен, бот должен сделать паузу
+            else:
+                # Активность оператора была давно, бот может отвечать. Удаляем старую запись.
+                logging.info(f"[ПроверкаОператора] Активность оператора для conv_id: {conv_id} старше 15 минут ({last_active_time}). Бот может отвечать. Удаление старой записи.")
+                try:
+                    cur.execute("DELETE FROM operator_activity WHERE conv_id = %s", (conv_id,))
+                    conn.commit() # Подтверждаем удаление
+                    logging.info(f"[ПроверкаОператора] Успешно удалена старая запись об активности оператора для conv_id: {conv_id}.")
+                except psycopg2.Error as e_delete:
+                    conn.rollback() # Откатываем, если удаление не удалось
+                    logging.error(f"[ПроверкаОператора] Не удалось удалить старую запись об активности оператора для conv_id: {conv_id}. Ошибка: {e_delete}")
+                return False # Оператор не был активен недавно
+        else:
+            # Записи об активности оператора нет
+            logging.info(f"[ПроверкаОператора] Запись об активности оператора для conv_id: {conv_id} не найдена. Бот может отвечать.")
+            return False # Записи нет, бот может отвечать
+
+    except psycopg2.Error as e_db: # Ошибки при работе с БД
+        logging.error(f"[ПроверкаОператора] Ошибка базы данных при проверке активности оператора для conv_id {conv_id}: {e_db}")
+        # В случае ошибки БД, безопаснее считать, что оператор мог быть активен, поэтому бот делает паузу.
+        logging.warning(f"[ПроверкаОператора] Бот сделает ПАУЗУ для conv_id {conv_id} из-за ошибки БД при проверке активности.")
+        return True 
+    except Exception as e_generic: # Другие непредвиденные ошибки
+        logging.error(f"[ПроверкаОператора] Общая ошибка при проверке активности оператора для conv_id {conv_id}: {e_generic}")
+        # Безопасное поведение по умолчанию: пауза для бота
+        logging.warning(f"[ПроверкаОператора] Бот сделает ПАУЗУ для conv_id {conv_id} из-за общей ошибки при проверке активности.")
+        return True
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+        logging.debug(f"[ПроверкаОператора] Соединение с БД для проверки активности оператора (conv_id {conv_id}) закрыто.")
 
 # =====================================
 # 11. ОБРАБОТКА ПОСТУПИВШЕГО СООБЩЕНИЯ ИЗ VK CALLBACK
@@ -1133,32 +1226,62 @@ def handle_new_message(user_id_from_vk, message_text_from_vk, vk_api_object, is_
 # =====================================
 # 12. ФОРМИРОВАНИЕ И ОТПРАВКА ОТВЕТА БОТА ПОСЛЕ ЗАДЕРЖКИ (из generate_and_send_response)
 # =====================================
-def generate_and_send_response(conv_id_to_respond, vk_api_for_sending): # Переименовал аргументы
+def generate_and_send_response(conv_id_to_respond, vk_api_for_sending):
     """
     Вызывается по истечении USER_MESSAGE_BUFFERING_DELAY.
     Формирует единый текст из буфера user_buffers, получает ответ от Gemini,
     сохраняет ОБЪЕДИНЕННОЕ сообщение пользователя и ответ бота в БД и в dialog_history_dict,
     а затем отправляет ответ пользователю через VK API.
     """
-    # Проверяем, не активен ли операторский таймер. Если да, бот не должен отвечать.
+    logging.info(f"Вызвана функция generate_and_send_response для conv_id: {conv_id_to_respond}")
+
+    # <<< НОВОЕ: Проверка Активности Оператора через БД >>>
+    # Эта проверка теперь является основной для решения, должен ли бот делать паузу
+    # из-за действий оператора в web_interface.py.
+    try:
+        if check_operator_activity_and_cleanup(conv_id_to_respond):
+            # Логирование о причине паузы уже произошло внутри check_operator_activity_and_cleanup.
+            # Ответ бота ПОДАВЛЯЕТСЯ из-за недавней активности оператора, зафиксированной в БД.
+            # Буфер сообщений пользователя (user_buffers) НЕ очищается здесь, если бот делает паузу.
+            # Сообщения будут обработаны при следующем вызове, если пользователь напишет снова ПОСЛЕ истечения паузы.
+            logging.info(f"Ответ бота для conv_id {conv_id_to_respond} ПОДАВЛЕН на основе проверки активности оператора в БД.")
+            return # Бот не отвечает 
+    except Exception as e_op_check:
+        # Эта ошибка может возникнуть, если, например, get_main_db_connection не удастся установить соединение
+        # до того, как check_operator_activity_and_cleanup обработает свои внутренние ошибки psycopg2.
+        logging.critical(f"Критическая ошибка во время вызова проверки активности оператора для conv_id {conv_id_to_respond}: {e_op_check}. Бот НЕ будет отвечать в целях предосторожности.")
+        return # Не отвечаем при такой ошибке
+    # <<< КОНЕЦ НОВОГО: Проверка Активности Оператора через БД >>>
+
+    # Существующая проверка для локальных таймеров operator_timers.
+    # Эти таймеры устанавливаются, если вызывается эндпоинт /operator_message_sent в main.py.
+    # Файл web_interface.py в его текущем виде НЕ вызывает этот эндпоинт; он напрямую обновляет БД.
+    # Эта проверка может остаться, если operator_timers используется другой частью системы.
     if conv_id_to_respond in operator_timers:
-        logging.info(f"Ответ для conv_id {conv_id_to_respond} не будет сгенерирован: операторский таймер активен.")
-        # Важно: НЕ очищаем user_buffers здесь, так как оператор может еще не видеть эти сообщения.
-        # Если операторский таймер истечет, и пользователь напишет снова, буфер обработается.
-        # Если оператор напишет через веб-интерфейс, тот вызовет /operator_message_sent, который очистит буфер.
+        logging.info(f"Ответ для conv_id {conv_id_to_respond} не будет сгенерирован: активен локальный таймер оператора (operator_timers).")
         return
 
     # Получаем накопленные сообщения из буфера
     buffered_messages = user_buffers.get(conv_id_to_respond, [])
     if not buffered_messages:
         logging.info(f"Нет сообщений в буфере для conv_id {conv_id_to_respond}. Ответ не генерируется.")
+        # Удаляем клиентский таймер из словаря, так как он уже сработал и для него нет сообщений
+        if conv_id_to_respond in client_timers:
+            del client_timers[conv_id_to_respond]
+            logging.debug(f"Клиентский таймер для conv_id {conv_id_to_respond} удален (пустой буфер).")
         return
 
     # Объединяем сообщения из буфера в один текст
     combined_user_text = "\n".join(buffered_messages).strip()
-    # Очищаем буфер ПОСЛЕ того, как сообщения из него извлечены
-    user_buffers[conv_id_to_respond] = []
+    # Очищаем буфер ПОСЛЕ того, как сообщения из него извлечены и ПЕРЕД тем, как начать генерацию ответа.
+    # Это важно, чтобы, если генерация ответа займет время или упадет, повторный вызов не обработал те же сообщения.
     logging.info(f"Сообщения для conv_id {conv_id_to_respond} извлечены из буфера. Объединенный текст: '{combined_user_text[:100]}...'")
+    user_buffers[conv_id_to_respond] = [] # Очищаем буфер пользователя, так как приступаем к обработке
+    
+    # Удаляем клиентский таймер из словаря, так как он выполнил свою функцию
+    if conv_id_to_respond in client_timers:
+        del client_timers[conv_id_to_respond]
+        logging.debug(f"Клиентский таймер для conv_id {conv_id_to_respond} удален после выполнения.")
 
     # Получаем имя пользователя для использования в промпте и логах
     first_name, last_name = get_vk_user_full_name(conv_id_to_respond)

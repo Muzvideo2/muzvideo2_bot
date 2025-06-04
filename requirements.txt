@@ -1,6 +1,7 @@
-Flask
 requests
+psycopg2
 vk_api
-gunicorn
-psycopg2-binary
+Flask
 openpyxl
+APScheduler
+

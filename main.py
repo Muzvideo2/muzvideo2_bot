@@ -32,7 +32,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # ID сообщества (нужно для формирования ссылки формата https://vk.com/gim<community_id>?sel=<user_id>)
 # Например, если сообщество имеет адрес https://vk.com/club48116621, то его ID = 48116621
-VK_COMMUNITY_ID = os.environ.get("VK_COMMUNITY_ID", "ВАШ_ID_СООБЩЕСТВА") # Лучше тоже из env
+VK_COMMUNITY_ID = 48116621 # Лучше тоже из env
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -89,8 +89,7 @@ except FileNotFoundError:
 # ==============================
 # Сервисные переменные
 # ==============================
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-# Переименовал gemini_url в GEMINI_API_URL для ясности
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview:generateContent?key={GEMINI_API_KEY}"# Переименовал gemini_url в GEMINI_API_URL для ясности
 
 # ID оператора (владельца бота), чьи сообщения из VK не должны запускать стандартную логику пользователя
 # Это значение должно быть числом, если оно используется для сравнения с user_id из VK

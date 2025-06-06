@@ -1035,193 +1035,106 @@ def check_operator_activity_and_cleanup(conv_id):
         logging.debug(f"[ПроверкаОператора] Соединение с БД для проверки активности оператора (conv_id {conv_id}) закрыто.")
 
 # =====================================
-# 11. ОБРАБОТКА ПОСТУПИВШЕГО СООБЩЕНИЯ ИЗ VK CALLBACK
+# 11. ОБРАБОТКА ПОСТУПИВШЕГО СООБЩЕНИЯ ИЗ VK CALLBACK (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 # =====================================
-# Эта функция будет сильно изменена, чтобы не сохранять сырые сообщения пользователя в БД,
-# а только буферизовать их.
-
 def handle_new_message(user_id_from_vk, message_text_from_vk, vk_api_object, is_outgoing_message=False, conversation_id=None):
     """
     Обрабатывает новое сообщение, полученное через VK Callback API.
-    - Сообщения от пользователя (is_outgoing_message=False) буферизуются.
-    - Сообщения от оператора, отправленные через VK (is_outgoing_message=True), обрабатываются для сброса таймеров бота.
-    - Сообщения от самого бота (is_outgoing_message=True, user_id_from_vk < 0) игнорируются.
+    - Если оператор активен, немедленно сохраняет сообщение пользователя в БД.
+    - Если оператор не активен, буферизует сообщение и запускает таймер для ответа бота.
+    - Исходящие сообщения логируются и пропускаются.
     """
-    
-    # Если conversation_id не передан явно (например, для исходящих), используем user_id_from_vk
-    # Для входящих от пользователя, conversation_id обычно равен user_id_from_vk.
-    # Важно, чтобы conv_id был ID пользователя для корректного ведения диалога.
     actual_conv_id = conversation_id if conversation_id is not None else user_id_from_vk
     
-    # Определяем роль и обрабатываем особые случаи
+    # 1. Обработка исходящих сообщений (отправленных из VK или самим ботом)
     if is_outgoing_message:
         if int(user_id_from_vk) < 0: # Сообщение от самого сообщества (бота)
-            logging.info(f"[VK Callback] Исходящее сообщение от сообщества (user_id: {user_id_from_vk}), пропускаем.")
-            return
-        # Если сообщение исходящее и ID отправителя совпадает с OPERATOR_VK_ID (если он настроен и >0)
-        # или если это просто исходящее сообщение от имени администратора/редактора группы, но не от бота.
-        # Это сложный момент, т.к. `user_id_from_vk` в `message_new` с `out=1` - это ID ПОЛУЧАТЕЛЯ.
-        # А `from_id` - это ID сообщества.
-        # Для `message_reply` (ответ оператора из интерфейса VK), `from_id` будет ID оператора.
-        # Поэтому, для исходящих, роль "operator" лучше устанавливать через прямой вызов /operator_message_sent
-        # из веб-интерфейса. Здесь мы можем только предполагать.
-        # Если OPERATOR_VK_ID настроен и совпадает с from_id в объекте сообщения (если доступно),
-        # то это точно оператор. Но `user_id_from_vk` в аргументах это `msg['from_id']`.
-        # Для исходящего `message_new` `msg['from_id']` будет ID сообщества.
-        # Это означает, что через callback мы не можем надежно определить, что исходящее сообщение было от оператора,
-        # если только не анализировать поле `admin_author_id` (если оно есть).
-        # Проще всего эту логику не усложнять здесь, а полагаться на веб-интерфейс.
-        # Здесь мы просто логируем исходящее сообщение, но не ставим операторский таймер на его основе.
-        # Основной механизм паузы бота - через /operator_message_sent
-        logging.info(f"[VK Callback] Зафиксировано исходящее сообщение для conv_id {actual_conv_id}. Текст: {message_text_from_vk[:50]}...")
-        # Не предпринимаем активных действий по установке операторской паузы здесь,
-        # так как это должно делаться через прямой вызов /operator_message_sent
-        # или если оператор пишет через интерфейс VK, то `handle_new_message` для `message_reply` 
-        # может попробовать определить это (но это менее надежно).
-        # Просто запишем это сообщение в лог-файл, если нужно.
-        # Роль будет "bot" или "unknown_sender" для простоты, т.к. это не оператор через веб-интерфейс.
-        role_for_log = "bot_vk_callback" # Условная роль для такого сообщения
-    else: # Входящее сообщение от пользователя
-        role_for_log = "user"
+            logging.info(f"[VK Callback] Исходящее сообщение от сообщества (user_id: {user_id_from_vk}) в диалоге {actual_conv_id}, пропускаем.")
+        else: # Сообщение от админа/оператора, отправленное через интерфейс VK
+            logging.info(f"[VK Callback] Зафиксировано исходящее сообщение от администратора {user_id_from_vk} в диалоге {actual_conv_id}. Не обрабатывается.")
+        return # Завершаем обработку для любых исходящих сообщений
 
-    # Загружаем историю диалога из памяти или БД
+    # 2. Базовая подготовка для входящих сообщений от пользователя
+    role_for_log = "user"
+    
     if actual_conv_id not in dialog_history_dict:
         dialog_history_dict[actual_conv_id] = load_dialog_from_db(actual_conv_id)
     
-    # Получаем имя пользователя (или используем кеш)
-    # user_id_from_vk должен быть ID пользователя, а не сообщества.
-    # Для входящих user_id_from_vk = from_id (ID пользователя).
-    # Для исходящих через message_new, user_id_from_vk = from_id (ID сообщества), peer_id = ID пользователя.
-    # Поэтому, для корректного получения имени, нужен ID конечного пользователя.
-    # В callback() мы передаем from_id как user_id, и from_id как conv_id. Это правильно для входящих.
-    user_display_id_for_name = actual_conv_id # Используем conv_id, т.к. он должен быть ID пользователя
+    first_name, last_name = get_vk_user_full_name(actual_conv_id)
+    full_name_display = f"{first_name} {last_name}".strip() or f"User_{actual_conv_id}"
 
-    first_name, last_name = get_vk_user_full_name(user_display_id_for_name)
-    full_name_display = f"{first_name} {last_name}".strip()
-    if not full_name_display: full_name_display = f"User_{user_display_id_for_name}"
-
-    # Определение пути к лог-файлу для этого диалога
+    # Логирование сырого сообщения в локальный файл (как и раньше)
     if actual_conv_id not in user_log_files:
-        # Создаем имя файла только один раз для каждого пользователя
         now_for_filename = datetime.utcnow().strftime('%Y-%m-%d_%H-%M-%S')
-        # Очищаем имя от недопустимых символов для имени файла
-        safe_display_name = "".join(c if c.isalnum() or c in (' ', '_') else '_' for c in full_name_display).replace(' ', '_')
+        safe_display_name = "".join(c for c in full_name_display if c.isalnum() or c in (' ', '_')).replace(' ', '_')
         log_file_name = f"dialog_{now_for_filename}_{actual_conv_id}_{safe_display_name}.txt"
         user_log_files[actual_conv_id] = os.path.join(LOGS_DIRECTORY, log_file_name)
     
-    current_log_file_path = user_log_files[actual_conv_id]
-    
-    # Формируем сообщение с временной меткой для локального лога (сырых данных)
-    # Используем время сервера +6 часов (как в предыдущих версиях)
-    current_server_time_adjusted = datetime.utcnow() + timedelta(hours=6)
-    formatted_log_time = current_server_time_adjusted.strftime("%Y-%m-%d_%H-%M-%S")
-    
-    # Запись в локальный лог-файл (сырые сообщения)
-    log_entry_text = ""
-    if role_for_log == "user":
-        log_entry_text = f"[{formatted_log_time}] {full_name_display} (raw VK): {message_text_from_vk}\n"
-    elif role_for_log == "bot_vk_callback": # Исходящее сообщение, зафиксированное callback'ом
-        log_entry_text = f"[{formatted_log_time}] Сообщество (исходящее VK): {message_text_from_vk}\n"
-    
-    if log_entry_text: # Пишем в лог, если есть что писать
-        try:
-            with open(current_log_file_path, "a", encoding="utf-8") as log_f:
-                log_f.write(log_entry_text)
-            # Загрузка на Яндекс.Диск каждого сырого сообщения может быть избыточной.
-            # Лучше загружать лог после завершения сессии или периодически.
-            # upload_log_to_yandex_disk(current_log_file_path) 
-        except Exception as e:
-            logging.error(f"Ошибка записи в локальный лог-файл '{current_log_file_path}': {e}")
+    try:
+        log_entry_text = f"[{datetime.utcnow() + timedelta(hours=6):%Y-%m-%d_%H-%M-%S}] {full_name_display} (raw VK): {message_text_from_vk}\n"
+        with open(user_log_files[actual_conv_id], "a", encoding="utf-8") as log_f:
+            log_f.write(log_entry_text)
+    except Exception as e:
+        logging.error(f"Ошибка записи в локальный лог-файл для conv_id {actual_conv_id}: {e}")
 
-    # ==================================================================
-    # Логика обработки для ВХОДЯЩИХ сообщений от пользователя
-    # ==================================================================
-    if role_for_log == "user":
-        # Если активен операторский таймер, ИГНОРИРУЕМ сообщение пользователя (не отвечаем, не буферизуем)
-        # Оператор должен сам увидеть это сообщение в веб-интерфейсе.
-        if actual_conv_id in operator_timers:
-            logging.info(f"Сообщение от пользователя {actual_conv_id} получено, но операторский таймер активен. Сообщение не будет обработано ботом.")
-            # Сообщение уже записано в сырой лог выше. Оператор увидит его в истории.
-            # Ничего не делаем, чтобы бот не отвечал и не сбрасывал операторскую паузу.
-            return
+    # 3. Проверяем, не является ли отправитель сам оператор, и игнорируем его
+    if OPERATOR_VK_ID > 0 and int(user_id_from_vk) == OPERATOR_VK_ID:
+        logging.info(f"Сообщение от VK ID оператора ({OPERATOR_VK_ID}) в диалоге {actual_conv_id}. Игнорируется для автоматической обработки.")
+        return
 
-        # Проверяем, не является ли отправитель сообщения OPERATOR_VK_ID (если настроено)
-        # Это для случая, если оператор пишет из приложения VK как обычный пользователь.
-        # И мы не хотим, чтобы бот ему отвечал или обрабатывал его сообщения как клиентские.
-        if OPERATOR_VK_ID > 0 and int(user_id_from_vk) == OPERATOR_VK_ID:
-            logging.info(f"Сообщение от VK ID оператора ({OPERATOR_VK_ID}) в диалоге {actual_conv_id}. Игнорируется для автоматической обработки.")
-            # Можно добавить логику, если оператор дает команды боту таким образом, но пока просто игнорируем.
-            return
+    # 4. КЛЮЧЕВАЯ ЛОГИКА: Проверяем, активен ли оператор, и решаем, что делать с сообщением
+    is_operator_active = False
+    try:
+        # Используем check_operator_activity_and_cleanup, но только для проверки, не для очистки.
+        # Если она вернет True, значит оператор был активен в последние 15 минут.
+        # Мы не хотим, чтобы бот удалял запись, пока он сам не соберется отвечать.
+        # Однако, текущая реализация функции `check_operator_activity_and_cleanup` уже делает то, что нужно:
+        # она проверяет активность, и если активность устарела - удаляет запись.
+        # Для этой проверки это поведение подходит.
+        is_operator_active = check_operator_activity_and_cleanup(actual_conv_id)
+    except Exception as e_check:
+        logging.error(f"[handle_new_message] Ошибка при проверке активности оператора в БД для conv_id {actual_conv_id}: {e_check}")
+        is_operator_active = True # Безопасное поведение: при ошибке считаем, что оператор активен
 
-        # Добавляем сообщение пользователя в буфер
+    if is_operator_active:
+        # === Логика, когда ОПЕРАТОР АКТИВЕН ===
+        logging.info(f"[Оператор активен] Сообщение от пользователя {actual_conv_id}. Немедленно сохраняем в БД, бот не отвечает.")
+        
+        timestamp_in_message = f"[{datetime.utcnow() + timedelta(hours=6):%Y-%m-%d_%H-%M-%S}]"
+        message_to_store = f"{timestamp_in_message} {message_text_from_vk}"
+        
+        store_dialog_in_db(
+            conv_id=actual_conv_id, role="user", message_text_with_timestamp=message_to_store, client_info=""
+        )
+        dialog_history_dict.setdefault(actual_conv_id, []).append({"user": message_to_store, "client_info": ""})
+        # ВАЖНО: Ничего не буферизуем и не запускаем таймер на ответ бота.
+        return
+    else:
+        # === Логика, когда ОПЕРАТОР НЕ АКТИВЕН (старая логика буферизации) ===
+        logging.info(f"[Оператор неактивен] Сообщение от пользователя {actual_conv_id} будет обработано ботом после задержки.")
         user_buffers.setdefault(actual_conv_id, []).append(message_text_from_vk)
         logging.info(f"Сообщение от {full_name_display} (conv_id: {actual_conv_id}) добавлено в буфер. Буфер: {user_buffers[actual_conv_id]}")
 
-        # Отправка уведомления в Telegram о ПЕРВОМ сообщении в диалоге (если история пуста)
-        # Проверяем, действительно ли это первое сообщение, посмотрев в dialog_history_dict
-        # (которое загружается из БД и должно быть пустым для нового диалога)
-        if not dialog_history_dict.get(actual_conv_id): # Если для этого conv_id еще нет истории в памяти
-            is_truly_first_message = True
-            # Дополнительная проверка в БД, если есть сомнения (хотя load_dialog_from_db уже должен был это сделать)
-            # try:
-            #     conn_check = psycopg2.connect(DATABASE_URL)
-            #     cur_check = conn_check.cursor()
-            #     cur_check.execute("SELECT 1 FROM dialogues WHERE conv_id = %s LIMIT 1", (actual_conv_id,))
-            #     if cur_check.fetchone(): is_truly_first_message = False
-            #     cur_check.close()
-            #     conn_check.close()
-            # except Exception as e_db_check: logging.error(f"Ошибка проверки БД на первое сообщение: {e_db_check}")
-
-            if is_truly_first_message and "оператор" not in message_text_from_vk.lower():
-                 send_telegram_notification(
-                     user_question_text=message_text_from_vk, 
-                     dialog_id=actual_conv_id, 
-                     first_name=first_name, 
-                     last_name=last_name
-                 )
+        # Уведомления в Telegram
+        if not dialog_history_dict.get(actual_conv_id): 
+            if "оператор" not in message_text_from_vk.lower():
+                 send_telegram_notification(user_question_text=message_text_from_vk, dialog_id=actual_conv_id, first_name=first_name, last_name=last_name)
         
-        # Если в тексте сообщения есть "оператор" (даже если это первое сообщение)
         if "оператор" in message_text_from_vk.lower():
-            # Используем текущую историю из dialog_history_dict (которая была загружена из БД)
-            # и добавляем к ней текущее сообщение из буфера для полноты картины
             temp_history_for_summary = list(dialog_history_dict.get(actual_conv_id, []))
-            # Добавляем текущее (еще не обработанное) сообщение в историю для сводки
             temp_history_for_summary.append({'user': message_text_from_vk})
-
             summary, reason = generate_summary_and_reason(temp_history_for_summary)
-            
-            # В качестве "изначального вопроса" можно взять первое сообщение из буфера
             initial_q_for_op_notify = user_buffers[actual_conv_id][0] if user_buffers[actual_conv_id] else message_text_from_vk
-            
-            send_operator_request_notification(
-                dialog_id=actual_conv_id, 
-                initial_question=initial_q_for_op_notify, 
-                dialog_summary=summary, 
-                reason_guess=reason, 
-                first_name=first_name, 
-                last_name=last_name
-            )
-            # Важно: после запроса оператора, мы НЕ ставим операторский таймер здесь.
-            # Оператор должен сам взять диалог в работу через веб-интерфейс,
-            # и только тогда веб-интерфейс вызовет /operator_message_sent.
-            # Бот продолжит работать в обычном режиме (ответит после задержки),
-            # если оператор не вмешается. Это дает шанс боту все же ответить,
-            # если запрос "оператор" был не очень настойчивым.
+            send_operator_request_notification(dialog_id=actual_conv_id, initial_question=initial_q_for_op_notify, dialog_summary=summary, reason_guess=reason, first_name=first_name, last_name=last_name)
 
-        # Перезапускаем таймер ожидания (буферизации) для пользователя
+        # Перезапуск таймера
         if actual_conv_id in client_timers:
             client_timers[actual_conv_id].cancel()
         
-        # vk_api_object передается в generate_and_send_response, чтобы он мог отправить ответ
-        client_timer_thread = threading.Timer(
-            USER_MESSAGE_BUFFERING_DELAY, 
-            generate_and_send_response, 
-            args=(actual_conv_id, vk_api_object) # Передаем объект VK API
-        )
+        client_timer_thread = threading.Timer(USER_MESSAGE_BUFFERING_DELAY, generate_and_send_response, args=(actual_conv_id, vk_api_object))
         client_timers[actual_conv_id] = client_timer_thread
         client_timer_thread.start()
         logging.info(f"Клиентский таймер на {USER_MESSAGE_BUFFERING_DELAY}с для диалога {actual_conv_id} установлен/перезапущен.")
-
 # =====================================
 # 12. ФОРМИРОВАНИЕ И ОТПРАВКА ОТВЕТА БОТА ПОСЛЕ ЗАДЕРЖКИ (из generate_and_send_response)
 # =====================================

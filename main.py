@@ -89,7 +89,7 @@ except FileNotFoundError:
 # ==============================
 # Сервисные переменные
 # ==============================
-GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key={GEMINI_API_KEY}"# Переименовал gemini_url в GEMINI_API_URL для ясности
+GEMINI_API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"# Переименовал gemini_url в GEMINI_API_URL для ясности
 
 # ID оператора (владельца бота), чьи сообщения из VK не должны запускать стандартную логику пользователя
 # Это значение должно быть числом, если оно используется для сравнения с user_id из VK

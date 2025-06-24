@@ -40,7 +40,7 @@ VK_COMMUNITY_ID = 48116621
 # Настройки для Vertex AI
 PROJECT_ID = "zeta-tracer-462306-r7"
 LOCATION = "us-central1"
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = "gemini-2.5-pro"
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

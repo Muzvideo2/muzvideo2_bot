@@ -158,7 +158,7 @@ def call_gemini_api(model, prompt, expect_json=False):
         if expect_json:
             generation_config["response_mime_type"] = "application/json"
 
-        response = model.generate_content(prompt, generation_config=generation_config, request_options={'timeout': API_TIMEOUT})
+        response = model.generate_content(prompt, generation_config=generation_config)
         
         return json.loads(response.text) if expect_json else response.text.strip()
 

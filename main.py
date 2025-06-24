@@ -436,6 +436,28 @@ def call_summary_updater_async(conv_id):
 # ====
 app = Flask(__name__)
 
+# ====
+# Инициализация Vertex AI при старте приложения
+# ====
+try:
+    credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if not credentials_path:
+        raise RuntimeError("Переменная окружения 'GOOGLE_APPLICATION_CREDENTIALS' не установлена.")
+    
+    credentials_path = credentials_path.strip(' "')
+    if not os.path.exists(credentials_path):
+        raise RuntimeError(f"Файл с учетными данными не найден по пути: {credentials_path}")
+
+    credentials = service_account.Credentials.from_service_account_file(credentials_path)
+    vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=credentials)
+    app.model = GenerativeModel(MODEL_NAME)
+    logging.info("Учетные данные Vertex AI успешно загружены. Модель инициализирована.")
+except Exception as e:
+    logging.critical(f"КРИТИЧЕСКАЯ ОШИБКА: Не удалось инициализировать Vertex AI. Приложение не сможет работать. Ошибка: {e}")
+    # В проде приложение может продолжить работать без модели, но будет выдавать ошибки.
+    # Для критического функционала можно использовать exit(1)
+    app.model = None # Явно указываем, что модель не создана
+
 @app.route('/ping_main_bot', methods=['GET'])
 def ping_main_bot():
     return "Pong from Main Bot!", 200
@@ -1052,33 +1074,15 @@ def callback_handler():
 
     return "ok", 200
 
-
 if __name__ == "__main__":
-    credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-    if not credentials_path:
-        logging.critical("КРИТИЧЕСКАЯ ОШИБКА: Переменная окружения 'GOOGLE_APPLICATION_CREDENTIALS' не установлена.")
-        exit(1)
-    
-    credentials_path = credentials_path.strip(' "')
-    if not os.path.exists(credentials_path):
-        logging.critical(f"КРИТИЧЕСКАЯ ОШИБКА: Файл с учетными данными не найден по пути: {credentials_path}")
-        exit(1)
-
-    try:
-        credentials = service_account.Credentials.from_service_account_file(credentials_path)
-        vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=credentials)
-        app.model = GenerativeModel(MODEL_NAME)
-        logging.info("Учетные данные Vertex AI успешно загружены. Модель инициализирована.")
-    except Exception as e:
-        logging.critical(f"КРИТИЧЕСКАЯ ОШИБКА: Не удалось инициализировать Vertex AI. Ошибка: {e}")
-        exit(1)
-
+    # Этот блок теперь используется только для локального запуска и отладки.
+    # На Railway будет использоваться gunicorn, и этот код выполняться не будет.
     if not DATABASE_URL:
         logging.critical("Переменная окружения DATABASE_URL не установлена. Приложение не может запуститься.")
         exit(1)
     if not VK_COMMUNITY_TOKEN or not VK_CONFIRMATION_TOKEN:
-        logging.critical("Переменные окружения VK_COMMUNITY_TOKEN или VK_CONFIRMATION_TOKEN не установлены. Приложение не может корректно обрабатывать запросы VK.")
+        logging.critical("Переменные окружения VK_COMMUNITY_TOKEN или VK_CONFIRMATION_TOKEN не установлены.")
     
-    logging.info("Запуск Flask-приложения основного бота...")
+    logging.info("Запуск Flask-приложения в режиме разработки...")
     server_port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=server_port, debug=False)

@@ -597,7 +597,7 @@ def find_relevant_titles_with_gemini(user_question_text, model):
 
     for attempt in range(3):
         try:
-            response = model.generate_content(prompt_text, request_options={'timeout': 20})
+            response = model.generate_content(prompt_text)
             
             text_raw = response.text
             lines = text_raw.strip().split("\n")
@@ -651,7 +651,7 @@ def generate_response(user_question_text, context_from_builder, current_custom_p
 
     for attempt in range(3):
         try:
-            response = model.generate_content(full_prompt_text, request_options={'timeout': 30})
+            response = model.generate_content(full_prompt_text)
             model_response_text = response.text.strip()
             logging.info(f"Ответ от Gemini (Vertex AI) получен: '{model_response_text[:200]}...'")
             return model_response_text
@@ -707,7 +707,7 @@ def generate_summary_and_reason(dialog_history_list_for_summary, model):
 
     for attempt in range(2):
         try:
-            response = model.generate_content(prompt_text, request_options={'timeout': 15})
+            response = model.generate_content(prompt_text)
             output_text = response.text.strip()
             parts = output_text.split("\n", 1)
             dialog_summary_text = parts[0].strip() if len(parts) > 0 else "Сводка не сформирована"

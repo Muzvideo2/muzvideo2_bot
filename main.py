@@ -370,7 +370,7 @@ def call_context_builder(vk_callback_data):
             capture_output=True,
             text=True,
             encoding='utf-8',
-            timeout=30
+            timeout=45
         )
 
         if process.returncode != 0:
@@ -646,6 +646,7 @@ def generate_response(user_question_text, context_from_builder, current_custom_p
         with open(prompt_log_filepath, "w", encoding="utf-8") as pf:
             pf.write(full_prompt_text)
         logging.info(f"Полный промпт для Gemini сохранён в: {prompt_log_filepath}")
+        upload_log_to_yandex_disk(prompt_log_filepath)
     except Exception as e:
         logging.error(f"Ошибка при записи промпта Gemini в файл '{prompt_log_filepath}': {e}")
 
@@ -655,7 +656,7 @@ def generate_response(user_question_text, context_from_builder, current_custom_p
             model_response_text = response.text.strip()
             logging.info(f"Ответ от Gemini (Vertex AI) получен: '{model_response_text[:200]}...'")
             return model_response_text
-            
+        
         except Exception as e:
             logging.error(f"Ошибка Vertex AI при генерации ответа (попытка {attempt + 1}): {e}")
             if attempt < 2:
@@ -951,7 +952,6 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
                     log_f.write(f"[{timestamp_in_message_text}] Найденные ключи БЗ (для processed): {', '.join(relevant_titles_from_kb)}\n")
                 log_f.write(f"[{timestamp_in_message_text}] Context Builder: Context retrieved successfully\n")
                 log_f.write(f"[{timestamp_in_message_text}] Модель: {bot_response_text}\n\n")
-            upload_log_to_yandex_disk(log_file_path_for_processed)
         except Exception as e:
             logging.error(f"Ошибка записи в локальный лог-файл (processed) '{log_file_path_for_processed}': {e}")
     else:
@@ -962,7 +962,8 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
             vk_api_for_sending.messages.send(
                 user_id=conv_id_to_respond,
                 message=bot_response_text,
-                random_id=int(time.time() * 10000)
+                random_id=int(time.time() * 10000),
+                disable_mentions=1
             )
             logging.info(f"Ответ бота успешно отправлен пользователю {conv_id_to_respond}.")
         except vk_api.ApiError as e:

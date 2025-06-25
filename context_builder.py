@@ -37,9 +37,13 @@ EMAIL_REGEX = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
 
 def get_db_connection():
     """Устанавливает соединение с БД."""
+    conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+    with conn.cursor() as cur:
+        cur.execute("SET statement_timeout = '25s'")  # таймаут для запросов
+    return conn    
     if not DATABASE_URL:
         raise ConnectionError("Переменная окружения DATABASE_URL не установлена!")
-    return psycopg2.connect(DATABASE_URL)
+    return psycopg2.connect(DATABASE_URL, connect_timeout=10)
 
 def default_serializer(obj):
     """Сериализатор для JSON, обрабатывающий datetime."""

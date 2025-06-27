@@ -135,7 +135,7 @@ def setup_logging():
         format='%(asctime)s - %(levelname)s - CONV_ID: %(conv_id)s - %(message)s',
         handlers=[
             logging.FileHandler(LOG_FILE_NAME, mode='a', encoding='utf-8'),
-            logging.StreamHandler(sys.stderr)
+            logging.StreamHandler(sys.stdout)
         ]
     )
 

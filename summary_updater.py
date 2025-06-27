@@ -115,16 +115,24 @@ client_pains: Трудности и "боли" ("не хватает време�
 email: Извлеки ВСЕ email-адреса, которые клиент написал. Верни их в виде списка строк.
 lead_qualification: Оцени "теплоту" клиента ('холодный', 'тёплый', 'горячий', 'клиент', 'не определено').
 funnel_stage: Определи этап воронки. Если клиенту, который уже купил или отказался, делают НОВОЕ предложение, используй статус 'сделано новое предложение'. Если не можешь определить этап, используй 'не применимо'. Возможные значения: 'предложение по продуктам ещё не сделано', 'сделано предложение по продуктам', 'сделано новое предложение', 'клиент думает', 'отказ от покупки', 'решение принято (ожидаем оплату)', 'покупка совершена', 'не применимо'.
-client_activity: Определи активность клиента в этом фрагменте диалога. 'активен': если во фрагменте есть ДВА или БОЛЕЕ сообщения от клиента. 'пассивен': если во фрагменте только ОДНО или НЕТ сообщений от клиента.
+client_activity: Определи активность клиента в этом фрагменте диалога. 'активен': если во фрагменте есть ДВА или БОЛЕЕ сообщений от клиента. 'пассивен': если во фрагменте только ОДНО или НЕТ сообщений от клиента.
 
 --- НОВЫЕ СООБЩЕНИЯ ДЛЯ АНАЛИЗА ---
 {new_messages_text}
 """
 
 def setup_logging():
+    # Делаем conv_id доступным глобально для логгера
+    old_factory = logging.getLogRecordFactory()
+    def record_factory(*args, **kwargs):
+        record = old_factory(*args, **kwargs)
+        record.conv_id = globals().get('conv_id', 'N/A')
+        return record
+    logging.setLogRecordFactory(record_factory)
+
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - CONV_ID: %(message)s',
+        format='%(asctime)s - %(levelname)s - CONV_ID: %(conv_id)s - %(message)s',
         handlers=[
             logging.FileHandler(LOG_FILE_NAME, mode='a', encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
@@ -154,19 +162,36 @@ def call_gemini_api(model, prompt, expect_json=False):
     Вызывает модель Gemini через Vertex AI SDK с обработкой ошибок.
     """
     try:
+        logging.info(f"Отправляем запрос в Gemini. Промпт (первые 200 символов): {prompt[:200]}...")
+        
         generation_config = {}
         if expect_json:
             generation_config["response_mime_type"] = "application/json"
+            logging.info("Ожидаем JSON-ответ от модели")
 
         response = model.generate_content(prompt, generation_config=generation_config)
         
-        return json.loads(response.text) if expect_json else response.text.strip()
+        raw_response = response.text
+        logging.info(f"Получен ответ от Gemini (длина: {len(raw_response)} символов): {raw_response[:300]}...")
+        
+        if expect_json:
+            parsed_response = json.loads(raw_response)
+            logging.info(f"JSON успешно распарсен: {parsed_response}")
+            return parsed_response
+        else:
+            return raw_response.strip()
 
+    except json.JSONDecodeError as je:
+        logging.error(f"Ошибка парсинга JSON от Gemini: {je}. Сырой ответ: {raw_response}")
+        raise
     except Exception as e:
         logging.error(f"Ошибка вызова Vertex AI API: {e}", exc_info=True)
         raise
 
 def merge_profiles(old_profile, new_facts, new_summary):
+    logging.info(f"Начинаем слияние профилей. Старый профиль: {old_profile}")
+    logging.info(f"Новые факты для слияния: {new_facts}")
+
     updated_profile = old_profile.copy()
     updated_profile['dialogue_summary'] = new_summary
     updated_profile['last_updated'] = datetime.now(timezone.utc)
@@ -218,9 +243,12 @@ def merge_profiles(old_profile, new_facts, new_summary):
         combined_set.update(new_facts.get(key, []))
         updated_profile[key] = sorted(list(combined_set))
 
+    logging.info(f"Результат слияния профилей: {updated_profile}")
     return updated_profile
 
 def update_and_cleanup_database(conv_id, updated_profile, cur):
+    logging.info(f"Подготовка к обновлению профиля. Данные для записи: {updated_profile}")
+
     update_query = """
     UPDATE user_profiles SET
     dialogue_summary = %(dialogue_summary)s, lead_qualification = %(lead_qualification)s,
@@ -230,8 +258,15 @@ def update_and_cleanup_database(conv_id, updated_profile, cur):
     client_activity = %(client_activity)s, last_updated = %(last_updated)s
     WHERE conv_id = %(conv_id)s;
     """
+    logging.info(f"Выполняем UPDATE запрос для conv_id: {conv_id}")
     cur.execute(update_query, updated_profile)
-    logging.info(f"{conv_id} - Профиль пользователя успешно обновлен в транзакции.")
+    affected_rows = cur.rowcount
+    logging.info(f"UPDATE выполнен. Затронуто строк: {affected_rows}")
+
+    if affected_rows == 0:
+        logging.warning(f"ВНИМАНИЕ: UPDATE не затронул ни одной строки! Возможно, профиль не существует.")
+    else:
+        logging.info(f"Профиль пользователя успешно обновлен в транзакции.")
 
     cutoff_timestamp_query = """
         SELECT created_at FROM dialogues
@@ -262,15 +297,17 @@ def main():
         if not conv_id_str.isdigit():
             raise ValueError(f"Получен некорректный conv_id: '{conv_id_str}'")
         conv_id = int(conv_id_str)
+        # Делаем conv_id глобальным для использования в логах
+        globals()['conv_id'] = conv_id
     except Exception as e:
-        logging.error(f"0 - Критическая ошибка при чтении conv_id из stdin: {e}")
+        logging.error(f"Критическая ошибка при чтении conv_id из stdin: {e}", extra={'conv_id': 'N/A'})
         sys.exit(1)
 
-    logging.info(f"{conv_id} - Запущен процесс обновления саммари.")
+    logging.info("Запущен процесс обновления саммари.")
 
     credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if not credentials_path:
-        logging.critical(f"{conv_id} - КРИТИЧЕСКАЯ ОШИБКА: Переменная окружения 'GOOGLE_APPLICATION_CREDENTIALS' не установлена.")
+        logging.critical("КРИТИЧЕСКАЯ ОШИБКА: Переменная окружения 'GOOGLE_APPLICATION_CREDENTIALS' не установлена.")
         sys.exit(1)
 
     credentials_path = credentials_path.strip(' "')
@@ -278,9 +315,9 @@ def main():
         credentials = service_account.Credentials.from_service_account_file(credentials_path)
         vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=credentials)
         model = GenerativeModel(MODEL_NAME)
-        logging.info(f"{conv_id} - Учетные данные Vertex AI успешно загружены. Модель инициализирована.")
+        logging.info("Учетные данные Vertex AI успешно загружены. Модель инициализирована.")
     except Exception as e:
-        logging.critical(f"{conv_id} - КРИТИЧЕСКАЯ ОШИБКА: Не удалось инициализировать Vertex AI. Ошибка: {e}")
+        logging.critical(f"КРИТИЧЕСКАЯ ОШИБКА: Не удалось инициализировать Vertex AI. Ошибка: {e}")
         sys.exit(1)
 
     # === ШАГ 1: Извлечение данных БЕЗ блокировки ===
@@ -327,14 +364,16 @@ def main():
             new_messages_text=new_messages_text
         )
         new_summary = call_gemini_api(model, summary_prompt, expect_json=False)
-        logging.info(f"{conv_id} - Новое инкрементальное саммари успешно сгенерировано.")
+        logging.info("Новое инкрементальное саммари успешно сгенерировано.")
+        logging.info(f"Новое саммари (первые 200 символов): {new_summary[:200]}...")
 
         facts_prompt = PROMPT_EXTRACT_NEW_FACTS.format(new_messages_text=new_messages_text)
         new_facts = call_gemini_api(model, facts_prompt, expect_json=True)
-        logging.info(f"{conv_id} - Новые факты успешно извлечены: {new_facts}")
+        logging.info("Новые факты успешно извлечены.")
+        logging.info(f"Извлеченные факты: {json.dumps(new_facts, ensure_ascii=False, indent=2)}")
 
     except Exception as e:
-        logging.error(f"{conv_id} - Критическая ошибка во время вызова Gemini API. Процесс будет завершен.")
+        logging.error(f"Критическая ошибка во время вызова Gemini API. Процесс будет завершен.")
         sys.exit(1)
 
     # === ШАГ 3: Короткая атомарная транзакция для записи данных ===

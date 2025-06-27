@@ -164,18 +164,23 @@ def call_gemini_api(model, prompt, expect_json=False):
     try:
         logging.info(f"Отправляем запрос в Gemini. Промпт (первые 200 символов): {prompt[:200]}...")
         
-        generation_config = {}
-        if expect_json:
-            generation_config["response_mime_type"] = "application/json"
-            logging.info("Ожидаем JSON-ответ от модели")
-
-        response = model.generate_content(prompt, generation_config=generation_config)
+        response = model.generate_content(prompt)
         
         raw_response = response.text
         logging.info(f"Получен ответ от Gemini (длина: {len(raw_response)} символов): {raw_response[:300]}...")
         
         if expect_json:
-            parsed_response = json.loads(raw_response)
+            logging.info("Ожидаем JSON-ответ, начинаем парсинг.")
+            # Попытка найти JSON внутри markdown-блока
+            match = re.search(r"```(json)?\s*([\s\S]*?)\s*```", raw_response)
+            if match:
+                json_str = match.group(2)
+                logging.info(f"Найден JSON в markdown-блоке. Попытка парсинга: {json_str[:200]}")
+            else:
+                json_str = raw_response
+                logging.info(f"Markdown-блок не найден. Попытка парсинга всего ответа.")
+            
+            parsed_response = json.loads(json_str)
             logging.info(f"JSON успешно распарсен: {parsed_response}")
             return parsed_response
         else:
@@ -185,7 +190,7 @@ def call_gemini_api(model, prompt, expect_json=False):
         logging.error(f"Ошибка парсинга JSON от Gemini: {je}. Сырой ответ: {raw_response}")
         raise
     except Exception as e:
-        logging.error(f"Ошибка вызова Vertex AI API: {e}", exc_info=True)
+        logging.error(f"Ошибка вызова Vertex AI API или обработки ответа: {e}", exc_info=True)
         raise
 
 def merge_profiles(old_profile, new_facts, new_summary):

@@ -416,7 +416,7 @@ def call_summary_updater_async(conv_id):
             )
 
             if process.returncode != 0:
-                logging.error(f"Summary Updater завершился с кодом ошибки {process.returncode} для conv_id {conv_id}. stderr: {process.stderr}")
+                logging.error(f"Summary Updater завершился с кодом ошибки {process.returncode} для conv_id {conv_id}. stderr: {process.stderr}. stdout: {process.stdout}")
             else:
                 logging.info(f"Summary Updater успешно обработал conv_id {conv_id}")
 

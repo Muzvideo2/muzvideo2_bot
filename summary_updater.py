@@ -53,7 +53,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "zeta-tracer-462306-r7")
 LOCATION = os.environ.get("GEMINI_LOCATION", "us-central1")
 
-MODEL_NAME = "gemini-2.0-flash"
+MODEL_NAME = "gemini-2.5-flash"
 API_TIMEOUT = 45
 
 NUM_MESSAGES_TO_FETCH = 15

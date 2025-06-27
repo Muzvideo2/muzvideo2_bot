@@ -243,7 +243,7 @@ def merge_profiles(old_profile, new_facts, new_summary):
     new_emails = set(new_facts.get('email') or [])
     updated_profile['email'] = sorted(list(old_emails.union(new_emails)))
 
-    for key in ['client_level', 'learning_goals', 'purchased_products', 'client_pains']:
+    for key in ['client_level', 'learning_goals', 'client_pains']:
         combined_set = set(old_profile.get(key) or [])
         combined_set.update(new_facts.get(key, []))
         updated_profile[key] = sorted(list(combined_set))
@@ -251,14 +251,14 @@ def merge_profiles(old_profile, new_facts, new_summary):
     logging.info(f"Результат слияния профилей: {updated_profile}")
     return updated_profile
 
-def update_and_cleanup_database(conv_id, updated_profile, cur):
+def update_and_cleanup_database(conv_id, updated_profile, new_facts, cur):
     logging.info(f"Подготовка к обновлению профиля. Данные для записи: {updated_profile}")
 
     update_query = """
     UPDATE user_profiles SET
     dialogue_summary = %(dialogue_summary)s, lead_qualification = %(lead_qualification)s,
     funnel_stage = %(funnel_stage)s, client_level = %(client_level)s,
-    learning_goals = %(learning_goals)s, purchased_products = %(purchased_products)s,
+    learning_goals = %(learning_goals)s,
     client_pains = %(client_pains)s, email = %(email)s,
     client_activity = %(client_activity)s, last_updated = %(last_updated)s
     WHERE conv_id = %(conv_id)s;
@@ -272,6 +272,23 @@ def update_and_cleanup_database(conv_id, updated_profile, cur):
         logging.warning(f"ВНИМАНИЕ: UPDATE не затронул ни одной строки! Возможно, профиль не существует.")
     else:
         logging.info(f"Профиль пользователя успешно обновлен в транзакции.")
+
+    # Обновление купленных продуктов в отдельной таблице
+    new_purchased_products = new_facts.get('purchased_products', [])
+    if new_purchased_products:
+        logging.info(f"Обновляем информацию о купленных продуктах: {new_purchased_products}")
+        cur.execute("SELECT product_name FROM purchased_products WHERE conv_id = %s", (conv_id,))
+        existing_products = {row[0] for row in cur.fetchall()}
+        
+        products_to_insert = [p for p in new_purchased_products if p not in existing_products]
+        
+        if products_to_insert:
+            insert_query = "INSERT INTO purchased_products (conv_id, product_name) VALUES (%s, %s)"
+            data_to_insert = [(conv_id, product) for product in products_to_insert]
+            cur.executemany(insert_query, data_to_insert)
+            logging.info(f"Добавлено {len(data_to_insert)} новых записей в purchased_products.")
+        else:
+            logging.info("Новых купленных продуктов для добавления не найдено.")
 
     cutoff_timestamp_query = """
         SELECT created_at FROM dialogues
@@ -392,7 +409,7 @@ def main():
             updated_profile = merge_profiles(current_profile_in_db, new_facts, new_summary)
             updated_profile['conv_id'] = conv_id
             
-            update_and_cleanup_database(conv_id, updated_profile, cur)
+            update_and_cleanup_database(conv_id, updated_profile, new_facts, cur)
             
             conn.commit()
             logging.info(f"{conv_id} - Транзакция обновления и очистки успешно завершена.")

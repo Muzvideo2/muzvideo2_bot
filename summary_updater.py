@@ -378,7 +378,7 @@ def main():
         logging.info(f"Извлеченные факты: {json.dumps(new_facts, ensure_ascii=False, indent=2)}")
 
     except Exception as e:
-        logging.error(f"Критическая ошибка во время вызова Gemini API. Процесс будет завершен.")
+        logging.error(f"Критическая ошибка во время вызова Gemini API: {e}", exc_info=True)
         sys.exit(1)
 
     # === ШАГ 3: Короткая атомарная транзакция для записи данных ===

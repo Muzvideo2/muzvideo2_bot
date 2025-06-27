@@ -412,7 +412,7 @@ def call_summary_updater_async(conv_id):
                 capture_output=True,
                 text=True,
                 encoding='utf-8',
-                timeout=60
+                timeout=180
             )
 
             if process.returncode != 0:

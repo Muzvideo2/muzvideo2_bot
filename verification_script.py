@@ -382,8 +382,8 @@ def main():
     
     # Проверяем наличие TEST_DATABASE_URL
     if not TEST_DATABASE_URL:
-        print(f"{Colors.RED}ОШИБКА: Переменная окружения TEST_DATABASE_URL не установлена!{Colors.RESET}")
-        print("Используйте тестовую базу данных для безопасного тестирования.")
+        print(f"{Colors.RED}ОШИБКА: Переменная окружения TEST_DATABASE_URL или DATABASE_URL не установлена!{Colors.RESET}")
+        print("Для тестирования нужно установить одну из этих переменных.")
         sys.exit(1)
     
     # Загружаем сценарии

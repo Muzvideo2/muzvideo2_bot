@@ -96,6 +96,9 @@ PROMPT_ANALYZE_DIALOGUE = """
 Текущее время (московское): {current_datetime}
 ID текущего диалога: {conv_id}
 
+--- ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ---
+{user_info}
+
 --- ПОСЛЕДНИЕ СООБЩЕНИЯ ДИАЛОГА ---
 {dialogue_messages}
 
@@ -223,13 +226,13 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
     """
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            # Получаем последние сообщения диалога
+            # Получаем последние сообщения диалога (больше контекста для лучшего анализа)
             cur.execute("""
                 SELECT role, message, created_at 
                 FROM dialogues 
                 WHERE conv_id = %s 
                 ORDER BY created_at DESC 
-                LIMIT 10
+                LIMIT 20
             """, (conv_id,))
             messages = cur.fetchall()
             
@@ -258,16 +261,29 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             for rem in active_reminders:
                 reminders_text.append(f"- {rem['reminder_datetime']}: {rem['reminder_context_summary']}")
             
-            # Получаем информацию о часовом поясе клиента
-            cur.execute("SELECT client_timezone FROM user_profiles WHERE conv_id = %s", (conv_id,))
-            result = cur.fetchone()
-            client_timezone = result['client_timezone'] if result and result['client_timezone'] else 'Europe/Moscow'
+            # Получаем информацию о клиенте и проверяем, является ли он администратором
+            cur.execute("""
+                SELECT first_name, last_name 
+                FROM user_profiles 
+                WHERE conv_id = %s
+            """, (conv_id,))
+            profile_result = cur.fetchone()
+            client_timezone = 'Europe/Moscow'  # По умолчанию московское время
+            
+            # Формируем информацию о текущем пользователе для промпта
+            user_info = ""
+            if profile_result:
+                full_name = f"{profile_result['first_name']} {profile_result['last_name']}".strip()
+                user_info = f"Информация о текущем пользователе: conv_id={conv_id}, имя='{full_name}'"
+                if conv_id == ADMIN_CONV_ID:
+                    user_info += " (АДМИНИСТРАТОР)"
             
             # Формируем промпт
             prompt = PROMPT_ANALYZE_DIALOGUE.format(
                 admin_conv_id=ADMIN_CONV_ID,
                 current_datetime=get_moscow_time().strftime("%Y-%m-%d %H:%M:%S"),
                 conv_id=conv_id,
+                user_info=user_info,
                 dialogue_messages="\n".join(dialogue_text),
                 active_reminders="\n".join(reminders_text) if reminders_text else "Нет активных напоминаний"
             )
@@ -277,6 +293,19 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             
             # Обрабатываем результат
             if result.get('action') != 'none':
+                # Проверяем, не создаем ли мы дублирующее напоминание
+                if result.get('action') == 'create' and active_reminders:
+                    # Если есть активные напоминания с похожим контекстом, не создаем новое
+                    new_summary = result.get('reminder_context_summary', '').lower()
+                    for existing in active_reminders:
+                        existing_summary = existing['reminder_context_summary'].lower()
+                        # Простая проверка на схожесть (более 50% общих слов)
+                        new_words = set(new_summary.split())
+                        existing_words = set(existing_summary.split())
+                        if len(new_words & existing_words) > len(new_words) * 0.5:
+                            logging.info(f"Пропускаем создание дублирующего напоминания для {conv_id}")
+                            return None
+                
                 result['client_timezone'] = client_timezone
                 logging.info(f"Выявлена договоренность в диалоге {conv_id}: {result}")
                 return result

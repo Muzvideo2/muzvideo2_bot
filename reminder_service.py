@@ -37,6 +37,8 @@ import threading
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
 import requests
+from itertools import groupby
+from operator import itemgetter
 
 try:
     import vertexai
@@ -326,14 +328,17 @@ ID текущего диалога: {conv_id}
 --- ПОКУПКИ КЛИЕНТА ---
 {client_purchases}
 
-ВЕРНИ ОТВЕТ СТРОГО В ФОРМАТЕ JSON:
-{{
-  "action": "create/update/cancel/none",
-  "target_conv_id": 12345678,
-  "proposed_datetime": "YYYY-MM-DDTHH:MM:SS+03:00",
-  "reminder_context_summary": "Краткое описание причины напоминания",
-  "cancellation_reason": "Причина отмены (только для action=cancel)"
-}}
+ВЕРНИ ОТВЕТ СТРОГО В ФОРМАТЕ JSON, содержащий СПИСОК всех найденных действий.
+Если действий нет, верни: {"reminders": []}.
+[
+  {{
+    "action": "create/update/cancel/none",
+    "target_conv_id": 12345678,
+    "proposed_datetime": "YYYY-MM-DDTHH:MM:SS+03:00",
+    "reminder_context_summary": "Краткое описание причины напоминания",
+    "cancellation_reason": "Причина отмены (только для action=cancel)"
+  }}
+]
 """
 
 PROMPT_VERIFY_REMINDER = """
@@ -400,13 +405,26 @@ def call_gemini_api(model, prompt, expect_json=True):
         logging.info(f"Сырой ответ от Gemini: {raw_response}")
         
         if expect_json:
-            # Попытка найти JSON внутри markdown-блока
+            # Улучшенная логика для извлечения JSON из ответа
+            # Сначала ищем JSON в markdown-блоке
             match = re.search(r"```(json)?\s*([\s\S]*?)\s*```", raw_response)
             if match:
                 json_str = match.group(2)
             else:
-                json_str = raw_response
+                # Если markdown-блока нет, ищем первый символ '{' или '['
+                start_index = -1
+                for i, char in enumerate(raw_response):
+                    if char in ('{', '['):
+                        start_index = i
+                        break
+                if start_index != -1:
+                    json_str = raw_response[start_index:]
+                else:
+                    json_str = raw_response
             
+            # Удаляем управляющие символы в начале строки, если они есть
+            json_str = json_str.strip()
+
             parsed_response = json.loads(json_str)
             logging.info(f"JSON успешно распарсен: {parsed_response}")
             return parsed_response
@@ -574,24 +592,36 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             # Вызываем AI для анализа
             result = call_gemini_api(model, prompt, expect_json=True)
             
-            # Обрабатываем результат
-            if result.get('action') != 'none':
-                # Проверяем, не создаем ли мы дублирующее напоминание
-                if result.get('action') == 'create' and active_reminders:
-                    # Если есть активные напоминания с похожим контекстом, не создаем новое
-                    new_summary = result.get('reminder_context_summary', '').lower()
-                    for existing in active_reminders:
-                        existing_summary = existing['reminder_context_summary'].lower()
-                        # Простая проверка на схожесть (более 50% общих слов)
-                        new_words = set(new_summary.split())
-                        existing_words = set(existing_summary.split())
-                        if len(new_words & existing_words) > len(new_words) * 0.5:
-                            logging.info(f"Пропускаем создание дублирующего напоминания для {conv_id}")
-                            return None
-                
-                result['client_timezone'] = client_timezone
-                logging.info(f"Выявлена договоренность в диалоге {conv_id}: {result}")
-                return result
+            # Обрабатываем результат, который теперь является списком
+            reminders_to_process = result.get('reminders', [])
+            if isinstance(result, list): # Для обратной совместимости, если модель вернет список
+                reminders_to_process = result
+
+            if reminders_to_process:
+                processed_reminders = []
+                for reminder_data in reminders_to_process:
+                    if reminder_data.get('action') != 'none':
+                        # Проверяем, не создаем ли мы дублирующее напоминание
+                        if reminder_data.get('action') == 'create' and active_reminders:
+                            new_summary = reminder_data.get('reminder_context_summary', '').lower()
+                            is_duplicate = False
+                            for existing in active_reminders:
+                                existing_summary = existing['reminder_context_summary'].lower()
+                                # Простая проверка на схожесть (более 50% общих слов)
+                                new_words = set(new_summary.split())
+                                existing_words = set(existing_summary.split())
+                                if new_words and existing_words and len(new_words & existing_words) > len(new_words) * 0.5:
+                                    logging.info(f"Пропускаем создание дублирующего напоминания для {conv_id}: '{new_summary}'")
+                                    is_duplicate = True
+                                    break
+                            if is_duplicate:
+                                continue
+                        
+                        reminder_data['client_timezone'] = client_timezone
+                        logging.info(f"Выявлена договоренность в диалоге {conv_id}: {reminder_data}")
+                        processed_reminders.append(reminder_data)
+
+                return processed_reminders if processed_reminders else None
             
             return None
             
@@ -692,9 +722,68 @@ def create_or_update_reminder(conn, conv_id, reminder_data, created_by_conv_id=N
         logging.error(f"Ошибка при создании/обновлении напоминания: {e}", exc_info=True)
         raise
 
+def process_reminder_batch(reminders, model):
+    """
+    Обрабатывает пачку напоминаний для одного пользователя.
+    """
+    if not reminders:
+        return
+
+    conv_id = reminders[0]['conv_id']
+    logging.info(f"Обработка пачки из {len(reminders)} напоминаний для conv_id={conv_id}")
+
+    activated_contexts = []
+    activated_ids = []
+
+    for reminder in reminders:
+        # Вызываем process_single_reminder с флагом, чтобы он не активировал напоминание сразу
+        result = process_single_reminder(reminder, model, activate_immediately=False)
+        if result and result.get('status') == 'should_activate':
+            activated_contexts.append(result['context'])
+            activated_ids.append(result['id'])
+
+    if not activated_contexts:
+        logging.info(f"В пачке для conv_id={conv_id} нет напоминаний для активации.")
+        return
+
+    # Если есть что активировать, формируем одно сообщение
+    conn = None
+    try:
+        conn = get_db_connection()
+        combined_context = f"У вас несколько сработавших напоминаний:\n\n" + "\n".join([f"- {ctx}" for ctx in activated_contexts])
+
+        port = os.environ.get("PORT", 5000)
+        activate_url = f"http://127.0.0.1:{port}/activate_reminder"
+        payload = {"conv_id": conv_id, "reminder_context_summary": combined_context}
+        
+        logging.info(f"Вызов внутреннего эндпоинта для пачки: {activate_url} с payload: {payload}")
+        response = requests.post(activate_url, json=payload, timeout=30)
+        response.raise_for_status()
+        
+        logging.info(f"Эндпоинт активации успешно вызван для пачки напоминаний conv_id={conv_id}. Ответ: {response.json()}")
+
+        with conn.cursor() as cur:
+            cur.execute("UPDATE reminders SET status = 'done' WHERE id = ANY(%s::int[])", (activated_ids,))
+            conn.commit()
+            logging.info(f"Напоминания {activated_ids} помечены как 'done'.")
+    except Exception as e:
+        logging.error(f"Ошибка при пакетной активации для conv_id={conv_id}: {e}", exc_info=True)
+        if conn:
+            conn.rollback()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE reminders SET status = 'active' WHERE id = ANY(%s::int[])", (activated_ids,))
+                    conn.commit()
+                logging.info(f"Статус напоминаний {activated_ids} возвращен в 'active' из-за ошибки отправки.")
+            except Exception as e_revert:
+                logging.error(f"Не удалось вернуть статус напоминаниям {activated_ids}: {e_revert}")
+    finally:
+        if conn:
+            conn.close()
+
 def check_and_activate_reminders(model):
     """
-    Проверяет и активирует созревшие напоминания.
+    Проверяет и активирует созревшие напоминания, группируя их по пользователям.
     """
     conn = None
     try:
@@ -707,7 +796,7 @@ def check_and_activate_reminders(model):
                        created_at, client_timezone
                 FROM reminders 
                 WHERE status = 'active' AND reminder_datetime <= NOW()
-                ORDER BY reminder_datetime
+                ORDER BY conv_id, reminder_datetime
             """)
             
             reminders = cur.fetchall()
@@ -716,27 +805,35 @@ def check_and_activate_reminders(model):
                 logging.debug("Нет созревших напоминаний")
                 return
             
-            logging.info(f"Найдено {len(reminders)} созревших напоминаний")
-            
-            for reminder in reminders:
+            logging.info(f"Найдено {len(reminders)} созревших напоминаний. Группируем по пользователям.")
+
+            # Группируем напоминания по conv_id
+            reminders_by_user = {k: list(g) for k, g in groupby(reminders, itemgetter('conv_id'))}
+
+            for conv_id, user_reminders in reminders_by_user.items():
                 try:
-                    # Блокируем напоминание
+                    # Блокируем все напоминания для этого пользователя
+                    reminder_ids = [r['id'] for r in user_reminders]
                     cur.execute(
-                        "UPDATE reminders SET status = 'in_progress' WHERE id = %s",
-                        (reminder['id'],)
+                        "UPDATE reminders SET status = 'in_progress' WHERE id = ANY(%s::int[])",
+                        (reminder_ids,)
                     )
                     conn.commit()
                     
-                    # Обрабатываем напоминание в отдельном потоке
-                    thread = threading.Thread(
-                        target=process_single_reminder,
-                        args=(reminder, model)
-                    )
-                    thread.daemon = True
+                    # Выбираем, как обрабатывать: по одному или пачкой
+                    if len(user_reminders) == 1:
+                        target_func = process_single_reminder
+                        args = (user_reminders[0], model)
+                    else:
+                        target_func = process_reminder_batch
+                        args = (user_reminders, model)
+                    
+                    # Обрабатываем в отдельном потоке
+                    thread = threading.Thread(target=target_func, args=args, daemon=True)
                     thread.start()
                     
                 except Exception as e:
-                    logging.error(f"Ошибка при обработке напоминания ID={reminder['id']}: {e}")
+                    logging.error(f"Ошибка при обработке пачки напоминаний для conv_id={conv_id}: {e}")
                     conn.rollback()
                     
     except Exception as e:
@@ -745,9 +842,10 @@ def check_and_activate_reminders(model):
         if conn:
             conn.close()
 
-def process_single_reminder(reminder, model):
+def process_single_reminder(reminder, model, activate_immediately=True):
     """
     Обрабатывает одно напоминание.
+    Если activate_immediately=False, возвращает результат для пакетной обработки.
     """
     conn = None
     try:
@@ -786,6 +884,11 @@ def process_single_reminder(reminder, model):
         
         with conn.cursor() as cur:
             if verification['should_activate']:
+                # Для пакетной обработки просто возвращаем результат
+                if not activate_immediately:
+                    logging.info(f"Напоминание ID={reminder['id']} готово к пакетной активации.")
+                    return {'status': 'should_activate', 'context': reminder['reminder_context_summary'], 'id': reminder['id']}
+                
                 # Активируем напоминание
                 logging.info(f"Напоминание ID={reminder['id']} прошло проверку и будет активировано")
                 
@@ -847,6 +950,7 @@ def process_single_reminder(reminder, model):
                     logging.info(f"Напоминание ID={reminder['id']} перенесено на {new_datetime}")
             
             conn.commit()
+            return {'status': 'processed', 'id': reminder['id']} # Возвращаем статус для пакетной обработки
             
     except Exception as e:
         logging.error(f"Ошибка при обработке напоминания ID={reminder['id']}: {e}", exc_info=True)
@@ -862,6 +966,7 @@ def process_single_reminder(reminder, model):
                     conn.commit()
             except:
                 pass
+        return None # При ошибке
     finally:
         if conn:
             conn.close()
@@ -989,16 +1094,20 @@ def process_new_message(conv_id):
         
         conn = get_db_connection()
         
-        # Анализируем диалог
-        reminder_data = analyze_dialogue_for_reminders(conn, conv_id, model)
+        # Анализируем диалог. Теперь reminders_data - это список.
+        reminders_data = analyze_dialogue_for_reminders(conn, conv_id, model)
         
-        if reminder_data:
+        if reminders_data:
             # Определяем, кто создает напоминание
             created_by = conv_id if conv_id == ADMIN_CONV_ID else None
             
-            # Создаем или обновляем напоминание
-            create_or_update_reminder(conn, conv_id, reminder_data, created_by)
-            
+            # Обрабатываем каждое напоминание из списка
+            for reminder_item in reminders_data:
+                try:
+                    create_or_update_reminder(conn, conv_id, reminder_item, created_by)
+                except Exception as e_item:
+                    logging.error(f"Ошибка при обработке одного из напоминаний для conv_id={conv_id}: {reminder_item}. Ошибка: {e_item}")
+
     except Exception as e:
         logging.error(f"Ошибка при обработке сообщения для conv_id={conv_id}: {e}", exc_info=True)
     finally:

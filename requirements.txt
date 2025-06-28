@@ -7,3 +7,4 @@ gunicorn
 APScheduler
 google-cloud-aiplatform
 pytz
+google-oauth2-tool

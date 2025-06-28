@@ -21,6 +21,9 @@ import vertexai
 from vertexai.generative_models import GenerativeModel
 from google.oauth2 import service_account
 
+# Добавлен импорт сервиса напоминаний
+from reminder_service import initialize_reminder_service, process_new_message as process_reminder
+
 # ====
 # Читаем переменные окружения (секретные данные)
 # ====
@@ -54,8 +57,12 @@ user_log_files = {}
 user_buffers = {}
 last_questions = {}
 
-# Константа для задержки ответа клиенту
+# Константы
 USER_MESSAGE_BUFFERING_DELAY = 60
+EVENT_ID_TTL = 300  # Время жизни event_id в секундах (5 минут)
+
+# Словарь для отслеживания event_id
+recent_event_ids = {}
 
 # ====
 # Пути к файлам и внешним сервисам
@@ -462,6 +469,38 @@ except Exception as e:
 def ping_main_bot():
     return "Pong from Main Bot!", 200
 
+@app.route("/activate_reminder", methods=["POST"])
+def activate_reminder():
+    """
+    Эндпоинт для активации напоминания из reminder_service.
+    """
+    data = request.json
+    conv_id = data.get("conv_id")
+    reminder_context = data.get("reminder_context_summary")
+    
+    if not conv_id or not reminder_context:
+        return jsonify({"status": "error", "message": "Missing required fields"}), 400
+    
+    try:
+        # Получаем VK API
+        vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
+        vk_api_local = vk_session.get_api()
+        
+        # Генерируем и отправляем ответ с контекстом напоминания
+        generate_and_send_response(
+            conv_id_to_respond=conv_id,
+            vk_api_for_sending=vk_api_local,
+            vk_callback_data={},  # Минимальные данные
+            model=app.model,
+            reminder_context=reminder_context
+        )
+        
+        return jsonify({"status": "success"}), 200
+        
+    except Exception as e:
+        logging.error(f"Ошибка при активации напоминания: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route("/clear_context/<int:user_conv_id>", methods=["POST"])
 def clear_context(user_conv_id):
     """
@@ -861,7 +900,7 @@ def handle_new_message(user_id_from_vk, message_text_from_vk, vk_api_object, vk_
 # ====
 # 10. ФОРМИРОВАНИЕ И ОТПРАВКА ОТВЕТА БОТА ПОСЛЕ ЗАДЕРЖКИ
 # ====
-def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callback_data, model):
+def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callback_data, model, reminder_context=None):
     """
     Вызывается по истечении USER_MESSAGE_BUFFERING_DELAY.
     """
@@ -902,6 +941,10 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
         context_from_builder = call_context_builder(vk_callback_data)
         logging.info(f"Context Builder успешно вернул контекст для conv_id {conv_id_to_respond}")
 
+        # Если это вызов от напоминания, добавляем контекст в начало промпта
+        if reminder_context:
+            context_from_builder = f"[СИСТЕМНОЕ УВЕДОМЛЕНИЕ] Сработало напоминание. Причина: '{reminder_context}'. Проанализируй весь диалог и реши, уместно ли сейчас возобновлять общение. Если да — напиши релевантное сообщение клиенту. Если нет — верни ПУСТУЮ СТРОКУ.\n\n{context_from_builder}"
+
     except Exception as e:
         logging.error(f"Ошибка вызова Context Builder для conv_id {conv_id_to_respond}: {e}")
         logging.error(f"Обработка запроса для conv_id {conv_id_to_respond} прекращена из-за ошибки Context Builder")
@@ -931,6 +974,17 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
     dialog_history_dict.setdefault(conv_id_to_respond, []).append(
         {"user": user_message_with_ts_for_storage, "client_info": ""}
     )
+
+    # Асинхронно проверяем сообщение на наличие договоренностей о напоминании
+    try:
+        threading.Thread(
+            target=process_reminder,
+            args=(conv_id_to_respond,),
+            daemon=True
+        ).start()
+        logging.info(f"Анализ напоминаний запущен для conv_id {conv_id_to_respond}")
+    except Exception as e:
+        logging.error(f"Ошибка при запуске анализа напоминаний для conv_id {conv_id_to_respond}: {e}")
 
     bot_message_with_ts_for_storage = f"[{timestamp_in_message_text}] {bot_response_text}"
     store_dialog_in_db(
@@ -1083,6 +1137,10 @@ if __name__ == "__main__":
         exit(1)
     if not VK_COMMUNITY_TOKEN or not VK_CONFIRMATION_TOKEN:
         logging.critical("Переменные окружения VK_COMMUNITY_TOKEN или VK_CONFIRMATION_TOKEN не установлены.")
+    
+    # Инициализация сервиса напоминаний
+    if not initialize_reminder_service():
+        logging.error("Не удалось инициализировать сервис напоминаний. Продолжаем без него.")
     
     logging.info("Запуск Flask-приложения в режиме разработки...")
     server_port = int(os.environ.get("PORT", 5000))

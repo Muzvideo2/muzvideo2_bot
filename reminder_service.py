@@ -354,6 +354,8 @@ PROMPT_VERIFY_REMINDER = """
 3. После установки напоминания произошли события, делающие его неактуальным.
 4. Клиент попросил больше не беспокоить его.
 
+{special_rules}
+
 --- ИНФОРМАЦИЯ О НАПОМИНАНИИ ---
 Время создания: {reminder_created_at}
 Запланированное время: {reminder_datetime}
@@ -585,9 +587,9 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             )
             
             # Логируем полный промпт для диагностики
-            logging.info(f"=== ПОЛНЫЙ ПРОМПТ ДЛЯ АНАЛИЗА ДИАЛОГА {conv_id} ===")
-            logging.info(prompt)
-            logging.info("=== КОНЕЦ ПРОМПТА ===")
+            # logging.info(f"=== ПОЛНЫЙ ПРОМПТ ДЛЯ АНАЛИЗА ДИАЛОГА {conv_id} ===")
+            # logging.info(prompt)
+            # logging.info("=== КОНЕЦ ПРОМПТА ===")
             
             # Вызываем AI для анализа
             result = call_gemini_api(model, prompt, expect_json=True)
@@ -872,12 +874,24 @@ def process_single_reminder(reminder, model, activate_immediately=True):
         for rem in other_reminders:
             reminders_text.append(f"- {rem['reminder_datetime']}: {rem['reminder_context_summary']}")
         
+        # Определяем, является ли напоминание для администратора
+        is_admin_reminder = reminder['conv_id'] == ADMIN_CONV_ID
+        special_rules_text = ""
+        if is_admin_reminder:
+            special_rules_text = (
+                "ОСОБЫЕ ПРАВИЛА:\\n"
+                "1. Это напоминание для администратора.\\n"
+                "2. ЗАПРЕЩЕНО отменять или переносить напоминания для администратора, если он ЯВНО не попросил об этом в диалоге.\\n"
+                "3. Сообщения о 'тестировании', 'отладке' или любые другие технические обсуждения НЕ ЯВЛЯЮТСЯ причиной для отмены. Активируй напоминание в любом случае, если нет прямой команды на отмену."
+            )
+
         verify_prompt = PROMPT_VERIFY_REMINDER.format(
+            special_rules=special_rules_text,
             reminder_created_at=reminder['created_at'],
             reminder_datetime=reminder['reminder_datetime'],
             reminder_context_summary=reminder['reminder_context_summary'],
             client_context=context,
-            all_active_reminders="\n".join(reminders_text) if reminders_text else "Нет других активных напоминаний",
+            all_active_reminders="\\n".join(reminders_text) if reminders_text else "Нет других активных напоминаний",
             client_timezone=reminder.get('client_timezone', 'Europe/Moscow')
         )
         

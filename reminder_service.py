@@ -287,8 +287,8 @@ PROMPT_ANALYZE_DIALOGUE = """
 
 ВАЖНЫЕ ПРАВИЛА:
 1. Ищи ТОЛЬКО договоренности, связанные с деятельностью школы (оплата, обучение, курсы, консультации).
-2. ИГНОРИРУЙ личные просьбы, не связанные со школой (напомнить вынести мусор, позвонить маме и т.д.).
-3. Если сообщение от администратора (conv_id = {admin_conv_id}), проверь команды управления напоминаниями.
+2. ИГНОРИРУЙ личные просьбы, не связанные со школой (напомнить вынести мусор, позвонить маме и т.д.), кроме личных просьб от администратора.
+3. Администратор имеет conv_id = {admin_conv_id}. Если администратор просит поставить напоминание для себя, используй его conv_id. Если он просит поставить напоминание для другого человека, он обычно указывает conv_id этого человека и понятную просьбу о постановке напоминания.
 4. Учитывай контекст всего диалога для правильной интерпретации.
 
 ТИПЫ ДОГОВОРЕННОСТЕЙ:
@@ -297,10 +297,10 @@ PROMPT_ANALYZE_DIALOGUE = """
 - Отмена напоминания: "Спасибо, уже не нужно напоминать"
 - Перенос напоминания: "Давайте перенесем на вторник"
 
-КОМАНДЫ АДМИНИСТРАТОРА:
-- "Напомни conv_id: 12345678 завтра в 15:00 о консультации"
-- "Напомни мне в 16:30 проверить отчеты"
-- "Отмени напоминание для conv_id: 12345678"
+ПРИМЕРЫ ЕСТЕСТВЕННЫХ ПРОСЬБ:
+- Клиент: "Напомните мне завтра в 15:00 об оплате курса"
+- Администратор: "Поставь мне напоминание на 16:30 проверить отчеты"  
+- Администратор: "Поставь напоминание conv_id: 90123456 завтра о консультации"
 
 ПРАВИЛА ИНТЕРПРЕТАЦИИ ВРЕМЕНИ:
 - "Завтра" = следующий день в 10:00
@@ -396,6 +396,7 @@ def call_gemini_api(model, prompt, expect_json=True):
         raw_response = response.text
         
         logging.info(f"Получен ответ от Gemini (длина: {len(raw_response)} символов)")
+        logging.info(f"Сырой ответ от Gemini: {raw_response}")
         
         if expect_json:
             # Попытка найти JSON внутри markdown-блока
@@ -460,6 +461,12 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                 logging.info(f"Нет сообщений для анализа в диалоге {conv_id}")
                 return None
             
+            # Логируем сырые сообщения для диагностики
+            logging.info(f"=== СООБЩЕНИЯ ДИАЛОГА {conv_id} ДЛЯ АНАЛИЗА ===")
+            for i, msg in enumerate(reversed(messages)):
+                logging.info(f"Сообщение {i+1}: role={msg['role']}, message='{msg['message']}'")
+            logging.info("=== КОНЕЦ СООБЩЕНИЙ ===")
+            
             # Форматируем сообщения для промпта
             dialogue_text = []
             for msg in reversed(messages):
@@ -513,6 +520,22 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                 user_info += f", часовой пояс={client_timezone}"
                 if conv_id == ADMIN_CONV_ID:
                     user_info += " (АДМИНИСТРАТОР)"
+                    logging.info(f"=== АНАЛИЗ СООБЩЕНИЙ АДМИНИСТРАТОРА ===")
+                    logging.info(f"Обрабатываем сообщения от администратора (conv_id={ADMIN_CONV_ID})")
+                    # Логируем последнее сообщение от пользователя детально
+                    user_messages = [msg for msg in messages if msg['role'] == 'user']
+                    if user_messages:
+                        last_user_msg = user_messages[0]  # Самое последнее
+                        logging.info(f"Последнее сообщение пользователя: '{last_user_msg['message']}'")
+                        # Проверяем паттерны команд
+                        msg_lower = last_user_msg['message'].lower()
+                        if 'отмени' in msg_lower or 'cancel' in msg_lower:
+                            logging.warning("ВНИМАНИЕ: В сообщении обнаружены слова отмены!")
+                        if 'напомни' in msg_lower or 'remind' in msg_lower:
+                            logging.info("В сообщении обнаружены слова создания напоминания")
+                    logging.info("=== КОНЕЦ АНАЛИЗА АДМИНИСТРАТОРА ===")
+            else:
+                user_info = f"conv_id={conv_id}, часовой пояс={client_timezone}"
             
             # Получаем информацию о покупках клиента
             cur.execute("""
@@ -547,6 +570,11 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                 active_reminders="\n".join(reminders_text) if reminders_text else "Нет активных напоминаний",
                 client_purchases="\n".join(purchases_text) if purchases_text else "Нет покупок"
             )
+            
+            # Логируем полный промпт для диагностики
+            logging.info(f"=== ПОЛНЫЙ ПРОМПТ ДЛЯ АНАЛИЗА ДИАЛОГА {conv_id} ===")
+            logging.info(prompt)
+            logging.info("=== КОНЕЦ ПРОМПТА ===")
             
             # Вызываем AI для анализа
             result = call_gemini_api(model, prompt, expect_json=True)

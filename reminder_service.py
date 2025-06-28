@@ -62,6 +62,223 @@ CHECK_INTERVAL_MINUTES = 5
 # Настройки логирования
 LOG_FILE_NAME = "reminder_service.log"
 
+# Словарь для определения часового пояса по городу
+CITY_TIMEZONE_MAP = {
+    # Россия
+    'москва': 'Europe/Moscow',
+    'санкт-петербург': 'Europe/Moscow', 
+    'спб': 'Europe/Moscow',
+    'петербург': 'Europe/Moscow',
+    'екатеринбург': 'Asia/Yekaterinburg',
+    'новосибирск': 'Asia/Novosibirsk',
+    'красноярск': 'Asia/Krasnoyarsk',
+    'иркутск': 'Asia/Irkutsk',
+    'владивосток': 'Asia/Vladivostok',
+    'хабаровск': 'Asia/Vladivostok',
+    'омск': 'Asia/Omsk',
+    'челябинск': 'Asia/Yekaterinburg',
+    'казань': 'Europe/Moscow',
+    'нижний новгород': 'Europe/Moscow',
+    'самара': 'Europe/Samara',
+    'уфа': 'Asia/Yekaterinburg',
+    'ростов-на-дону': 'Europe/Moscow',
+    'краснодар': 'Europe/Moscow',
+    'пермь': 'Asia/Yekaterinburg',
+    'воронеж': 'Europe/Moscow',
+    'волгоград': 'Europe/Moscow',
+    'саратов': 'Europe/Moscow',
+    'тюмень': 'Asia/Yekaterinburg',
+    'тольятти': 'Europe/Samara',
+    'барнаул': 'Asia/Barnaul',
+    'ульяновск': 'Europe/Samara',
+    'иваново': 'Europe/Moscow',
+    'ярославль': 'Europe/Moscow',
+    'махачкала': 'Europe/Moscow',
+    'хабаровск': 'Asia/Vladivostok',
+    'оренбург': 'Asia/Yekaterinburg',
+    'новокузнецк': 'Asia/Novokuznetsk',
+    'рязань': 'Europe/Moscow',
+    'тула': 'Europe/Moscow',
+    'липецк': 'Europe/Moscow',
+    'киров': 'Europe/Moscow',
+    'чебоксары': 'Europe/Moscow',
+    'калининград': 'Europe/Kaliningrad',
+    'брянск': 'Europe/Moscow',
+    'магнитогорск': 'Asia/Yekaterinburg',
+    'курск': 'Europe/Moscow',
+    'тверь': 'Europe/Moscow',
+    'иваново': 'Europe/Moscow',
+    'архангельск': 'Europe/Moscow',
+    'сочи': 'Europe/Moscow',
+    'белгород': 'Europe/Moscow',
+    'калуга': 'Europe/Moscow',
+    'владимир': 'Europe/Moscow',
+    'сургут': 'Asia/Yekaterinburg',
+    'смоленск': 'Europe/Moscow',
+    'курган': 'Asia/Yekaterinburg',
+    'орёл': 'Europe/Moscow',
+    'череповец': 'Europe/Moscow',
+    'вологда': 'Europe/Moscow',
+    'мурманск': 'Europe/Moscow',
+    'тамбов': 'Europe/Moscow',
+    'стерлитамак': 'Asia/Yekaterinburg',
+    'грозный': 'Europe/Moscow',
+    'якутск': 'Asia/Yakutsk',
+    'кострома': 'Europe/Moscow',
+    'комсомольск-на-амуре': 'Asia/Vladivostok',
+    'петрозаводск': 'Europe/Moscow',
+    'таганрог': 'Europe/Moscow',
+    'нижневартовск': 'Asia/Yekaterinburg',
+    'йошкар-ола': 'Europe/Moscow',
+    'братск': 'Asia/Irkutsk',
+    'новороссийск': 'Europe/Moscow',
+    'дзержинск': 'Europe/Moscow',
+    'шахты': 'Europe/Moscow',
+    'орск': 'Asia/Yekaterinburg',
+    'ангарск': 'Asia/Irkutsk',
+    'сыктывкар': 'Europe/Moscow',
+    'нижнекамск': 'Europe/Moscow',
+    'старый оскол': 'Europe/Moscow',
+    'мытищи': 'Europe/Moscow',
+    'прокопьевск': 'Asia/Novokuznetsk',
+    'балашиха': 'Europe/Moscow',
+    'рыбинск': 'Europe/Moscow',
+    'бийск': 'Asia/Barnaul',
+    'подольск': 'Europe/Moscow',
+    'королёв': 'Europe/Moscow',
+    'сызрань': 'Europe/Samara',
+    'волжский': 'Europe/Moscow',
+    'железнодорожный': 'Europe/Moscow',
+    'абакан': 'Asia/Krasnoyarsk',
+    'уссурийск': 'Asia/Vladivostok',
+    'норильск': 'Asia/Krasnoyarsk',
+    'каменск-уральский': 'Asia/Yekaterinburg',
+    'великий новгород': 'Europe/Moscow',
+    'люберцы': 'Europe/Moscow',
+    'южно-сахалинск': 'Asia/Sakhalin',
+    
+    # Украина
+    'киев': 'Europe/Kiev',
+    'харьков': 'Europe/Kiev',
+    'одесса': 'Europe/Kiev',
+    'днепропетровск': 'Europe/Kiev',
+    'донецк': 'Europe/Kiev',
+    'запорожье': 'Europe/Kiev',
+    'львов': 'Europe/Kiev',
+    
+    # Беларусь
+    'минск': 'Europe/Minsk',
+    'гомель': 'Europe/Minsk',
+    'могилёв': 'Europe/Minsk',
+    'витебск': 'Europe/Minsk',
+    'гродно': 'Europe/Minsk',
+    'брест': 'Europe/Minsk',
+    
+    # Казахстан
+    'алматы': 'Asia/Almaty',
+    'нур-султан': 'Asia/Almaty',
+    'астана': 'Asia/Almaty',
+    'шымкент': 'Asia/Almaty',
+    'караганда': 'Asia/Almaty',
+    'актобе': 'Asia/Aqtobe',
+    'тараз': 'Asia/Almaty',
+    'павлодар': 'Asia/Almaty',
+    'усть-каменогорск': 'Asia/Almaty',
+    'семей': 'Asia/Almaty',
+    'атырау': 'Asia/Aqtau',
+    'костанай': 'Asia/Almaty',
+    'кызылорда': 'Asia/Qyzylorda',
+    'уральск': 'Asia/Oral',
+    'петропавловск': 'Asia/Almaty',
+    'актау': 'Asia/Aqtau',
+    
+    # Другие страны (основные города)
+    'лондон': 'Europe/London',
+    'париж': 'Europe/Paris',
+    'берлин': 'Europe/Berlin',
+    'рим': 'Europe/Rome',
+    'мадрид': 'Europe/Madrid',
+    'амстердам': 'Europe/Amsterdam',
+    'брюссель': 'Europe/Brussels',
+    'вена': 'Europe/Vienna',
+    'прага': 'Europe/Prague',
+    'варшава': 'Europe/Warsaw',
+    'стокгольм': 'Europe/Stockholm',
+    'хельсинки': 'Europe/Helsinki',
+    'осло': 'Europe/Oslo',
+    'копенгаген': 'Europe/Copenhagen',
+    'дублин': 'Europe/Dublin',
+    'лиссабон': 'Europe/Lisbon',
+    'афины': 'Europe/Athens',
+    'будапешт': 'Europe/Budapest',
+    'бухарест': 'Europe/Bucharest',
+    'софия': 'Europe/Sofia',
+    'белград': 'Europe/Belgrade',
+    'загреб': 'Europe/Zagreb',
+    'любляна': 'Europe/Ljubljana',
+    'братислава': 'Europe/Bratislava',
+    'таллин': 'Europe/Tallinn',
+    'рига': 'Europe/Riga',
+    'вильнюс': 'Europe/Vilnius',
+    'нью-йорк': 'America/New_York',
+    'лос-анджелес': 'America/Los_Angeles',
+    'чикаго': 'America/Chicago',
+    'хьюстон': 'America/Chicago',
+    'торонто': 'America/Toronto',
+    'ванкувер': 'America/Vancouver',
+    'токио': 'Asia/Tokyo',
+    'пекин': 'Asia/Shanghai',
+    'шанхай': 'Asia/Shanghai',
+    'сеул': 'Asia/Seoul',
+    'бангкок': 'Asia/Bangkok',
+    'сингапур': 'Asia/Singapore',
+    'джакарта': 'Asia/Jakarta',
+    'мумбаи': 'Asia/Kolkata',
+    'дели': 'Asia/Kolkata',
+    'дубай': 'Asia/Dubai',
+    'тель-авив': 'Asia/Jerusalem',
+    'стамбул': 'Europe/Istanbul',
+    'каир': 'Africa/Cairo',
+    'йоханнесбург': 'Africa/Johannesburg',
+    'сидней': 'Australia/Sydney',
+    'мельбурн': 'Australia/Melbourne',
+    'сан-паулу': 'America/Sao_Paulo',
+    'рио-де-жанейро': 'America/Sao_Paulo',
+    'буэнос-айрес': 'America/Argentina/Buenos_Aires',
+    'мехико': 'America/Mexico_City',
+}
+
+def get_timezone_by_city(city):
+    """Определяет часовой пояс по названию города."""
+    if not city:
+        return 'Europe/Moscow'  # По умолчанию московское время
+    
+    city_lower = city.lower().strip()
+    return CITY_TIMEZONE_MAP.get(city_lower, 'Europe/Moscow')
+
+def detect_timezone_from_message(message_text):
+    """Определяет, указан ли в сообщении конкретный часовой пояс."""
+    message_lower = message_text.lower()
+    
+    # Проверяем упоминания конкретных часовых поясов
+    timezone_patterns = [
+        (r'по\s+москве|московское\s+время|мск', 'Europe/Moscow'),
+        (r'по\s+питеру|по\s+спб|питерское\s+время', 'Europe/Moscow'),
+        (r'по\s+екатеринбургу|екатеринбургское\s+время', 'Asia/Yekaterinburg'),
+        (r'по\s+новосибирску|новосибирское\s+время', 'Asia/Novosibirsk'),
+        (r'по\s+владивостоку|владивостокское\s+время', 'Asia/Vladivostok'),
+        (r'utc|гринвич', 'UTC'),
+        (r'по\s+киеву|киевское\s+время', 'Europe/Kiev'),
+        (r'по\s+минску|минское\s+время', 'Europe/Minsk'),
+        (r'по\s+алматы', 'Asia/Almaty'),
+    ]
+    
+    for pattern, timezone in timezone_patterns:
+        if re.search(pattern, message_lower):
+            return timezone
+    
+    return None
+
 # --- ПРОМПТЫ ДЛЯ AI ---
 PROMPT_ANALYZE_DIALOGUE = """
 Ты — AI-ассистент, анализирующий диалоги онлайн-школы музыки для выявления договоренностей о будущем контакте.
@@ -104,6 +321,9 @@ ID текущего диалога: {conv_id}
 
 --- АКТИВНЫЕ НАПОМИНАНИЯ ДЛЯ ЭТОГО КЛИЕНТА ---
 {active_reminders}
+
+--- ПОКУПКИ КЛИЕНТА ---
+{client_purchases}
 
 ВЕРНИ ОТВЕТ СТРОГО В ФОРМАТЕ JSON:
 {{
@@ -261,23 +481,62 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             for rem in active_reminders:
                 reminders_text.append(f"- {rem['reminder_datetime']}: {rem['reminder_context_summary']}")
             
-            # Получаем информацию о клиенте и проверяем, является ли он администратором
+            # Получаем информацию о клиенте и определяем часовой пояс
             cur.execute("""
-                SELECT first_name, last_name 
+                SELECT first_name, last_name, city 
                 FROM user_profiles 
                 WHERE conv_id = %s
             """, (conv_id,))
             profile_result = cur.fetchone()
+            
+            # Определяем часовой пояс клиента
             client_timezone = 'Europe/Moscow'  # По умолчанию московское время
+            if profile_result and profile_result['city']:
+                client_timezone = get_timezone_by_city(profile_result['city'])
+            
+            # Проверяем, указан ли в сообщениях конкретный часовой пояс
+            for msg in messages:
+                if msg['role'] == 'user':  # Только сообщения клиента
+                    explicit_timezone = detect_timezone_from_message(msg['message'])
+                    if explicit_timezone:
+                        client_timezone = explicit_timezone
+                        break  # Используем последний явно указанный часовой пояс
             
             # Формируем информацию о текущем пользователе для промпта
             user_info = ""
             if profile_result:
                 full_name = f"{profile_result['first_name']} {profile_result['last_name']}".strip()
+                city = profile_result.get('city', '')
                 user_info = f"Информация о текущем пользователе: conv_id={conv_id}, имя='{full_name}'"
+                if city:
+                    user_info += f", город='{city}'"
+                user_info += f", часовой пояс={client_timezone}"
                 if conv_id == ADMIN_CONV_ID:
                     user_info += " (АДМИНИСТРАТОР)"
             
+            # Получаем информацию о покупках клиента
+            cur.execute("""
+                SELECT product_name, purchase_date, amount
+                FROM client_purchases 
+                WHERE conv_id = %s
+                ORDER BY purchase_date DESC
+                LIMIT 5
+            """, (conv_id,))
+            
+            purchases = cur.fetchall()
+            purchases_text = []
+            if purchases:
+                for purchase in purchases:
+                    date_str = purchase['purchase_date'].strftime('%Y-%m-%d %H:%M') if purchase['purchase_date'] else 'неизвестно'
+                    amount_str = f" на сумму {purchase['amount']}" if purchase.get('amount') else ""
+                    purchases_text.append(f"- {purchase['product_name']} (дата: {date_str}{amount_str})")
+                
+                # Проверяем недавние покупки
+                recent_purchases = [p for p in purchases if p['purchase_date'] and 
+                                  (datetime.now() - p['purchase_date']).total_seconds() < 86400]
+                if recent_purchases:
+                    purchases_text.append("\n⚠️ ВНИМАНИЕ: Есть покупки за последние 24 часа!")
+
             # Формируем промпт
             prompt = PROMPT_ANALYZE_DIALOGUE.format(
                 admin_conv_id=ADMIN_CONV_ID,
@@ -285,7 +544,8 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                 conv_id=conv_id,
                 user_info=user_info,
                 dialogue_messages="\n".join(dialogue_text),
-                active_reminders="\n".join(reminders_text) if reminders_text else "Нет активных напоминаний"
+                active_reminders="\n".join(reminders_text) if reminders_text else "Нет активных напоминаний",
+                client_purchases="\n".join(purchases_text) if purchases_text else "Нет покупок"
             )
             
             # Вызываем AI для анализа
@@ -588,20 +848,31 @@ def collect_client_context(conn, conv_id):
                     message_text = re.sub(r'^\[.*?\]\s*', '', msg['message'])
                     context_parts.append(f"{role}: {message_text}")
             
-            # Покупки
+            # Покупки (включая недавние)
             cur.execute("""
-                SELECT product_name, purchase_date 
+                SELECT product_name, purchase_date, amount
                 FROM client_purchases 
                 WHERE conv_id = %s
                 ORDER BY purchase_date DESC
+                LIMIT 10
             """, (conv_id,))
             
             purchases = cur.fetchall()
             if purchases:
                 context_parts.append("\n--- ПОКУПКИ КЛИЕНТА ---")
                 for purchase in purchases:
-                    date_str = purchase['purchase_date'].strftime('%Y-%m-%d') if purchase['purchase_date'] else 'неизвестно'
-                    context_parts.append(f"- {purchase['product_name']} (дата: {date_str})")
+                    date_str = purchase['purchase_date'].strftime('%Y-%m-%d %H:%M') if purchase['purchase_date'] else 'неизвестно'
+                    amount_str = f" на сумму {purchase['amount']}" if purchase.get('amount') else ""
+                    context_parts.append(f"- {purchase['product_name']} (дата: {date_str}{amount_str})")
+                
+                # Проверяем недавние покупки (за последние 24 часа)
+                recent_purchases = [p for p in purchases if p['purchase_date'] and 
+                                  (datetime.now() - p['purchase_date']).total_seconds() < 86400]
+                if recent_purchases:
+                    context_parts.append("\n⚠️ ВНИМАНИЕ: Есть покупки за последние 24 часа!")
+                    for purchase in recent_purchases:
+                        hours_ago = int((datetime.now() - purchase['purchase_date']).total_seconds() / 3600)
+                        context_parts.append(f"  • {purchase['product_name']} ({hours_ago} часов назад)")
     
     except Exception as e:
         logging.error(f"Ошибка при сборе контекста для conv_id={conv_id}: {e}")

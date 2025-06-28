@@ -364,7 +364,7 @@ PROMPT_VERIFY_REMINDER = """
   "should_activate": true/false,
   "reason": "Краткое объяснение решения",
   "suggested_action": "cancel/postpone/activate",
-  "postpone_to": "YYYY-MM-DDTHH:MM:SS+03:00 (только если suggested_action=postpone)"
+  "postpone_to": "YYYY-MM-DDTHH:MM:SS (в часовом поясе клиента, который равен {client_timezone})"
 }}
 """
 
@@ -614,6 +614,11 @@ def create_or_update_reminder(conn, conv_id, reminder_data, created_by_conv_id=N
                     reminder_data.get('client_timezone', 'Europe/Moscow')
                 )
                 
+                # Проверка на прошедшее время
+                if reminder_dt < datetime.now(timezone.utc):
+                    logging.warning(f"Попытка создать напоминание на прошедшее время ({reminder_dt}) для conv_id={target_conv_id}. Напоминание не будет создано.")
+                    return
+                
                 # Создаем новое напоминание
                 cur.execute("""
                     INSERT INTO reminders (
@@ -657,6 +662,11 @@ def create_or_update_reminder(conn, conv_id, reminder_data, created_by_conv_id=N
                     reminder_data['proposed_datetime'],
                     reminder_data.get('client_timezone', 'Europe/Moscow')
                 )
+                
+                # Проверка на прошедшее время
+                if reminder_dt < datetime.now(timezone.utc):
+                    logging.warning(f"Попытка обновить напоминание на прошедшее время ({reminder_dt}) для conv_id={target_conv_id}. Напоминание не будет обновлено.")
+                    return
                 
                 cur.execute("""
                     UPDATE reminders 
@@ -766,7 +776,8 @@ def process_single_reminder(reminder, model):
             reminder_datetime=reminder['reminder_datetime'],
             reminder_context_summary=reminder['reminder_context_summary'],
             client_context=context,
-            all_active_reminders="\n".join(reminders_text) if reminders_text else "Нет других активных напоминаний"
+            all_active_reminders="\n".join(reminders_text) if reminders_text else "Нет других активных напоминаний",
+            client_timezone=reminder.get('client_timezone', 'Europe/Moscow')
         )
         
         # Проверяем уместность напоминания
@@ -803,7 +814,7 @@ def process_single_reminder(reminder, model):
                 elif verification['suggested_action'] == 'postpone':
                     new_datetime = parse_datetime_with_timezone(
                         verification['postpone_to'],
-                        reminder['client_timezone'] or 'Europe/Moscow'
+                        reminder.get('client_timezone') or 'Europe/Moscow'
                     )
                     
                     cur.execute("""

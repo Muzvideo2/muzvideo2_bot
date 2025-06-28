@@ -982,17 +982,6 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
         {"user": user_message_with_ts_for_storage, "client_info": ""}
     )
 
-    # Асинхронно проверяем сообщение на наличие договоренностей о напоминании
-    try:
-        threading.Thread(
-            target=process_reminder,
-            args=(conv_id_to_respond,),
-            daemon=True
-        ).start()
-        logging.info(f"Анализ напоминаний запущен для conv_id {conv_id_to_respond}")
-    except Exception as e:
-        logging.error(f"Ошибка при запуске анализа напоминаний для conv_id {conv_id_to_respond}: {e}")
-
     bot_message_with_ts_for_storage = f"[{timestamp_in_message_text}] {bot_response_text}"
     store_dialog_in_db(
         conv_id=conv_id_to_respond, 

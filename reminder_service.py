@@ -740,8 +740,9 @@ def process_reminder_batch(reminders, model):
     activated_ids = []
 
     for reminder in reminders:
-        # Вызываем process_single_reminder с флагом, чтобы он не активировал напоминание сразу
-        result = process_single_reminder(reminder, model, activate_immediately=False)
+        # Передаем другие напоминания из пачки в контекст для корректной проверки
+        other_reminders_in_batch = [r for r in reminders if r['id'] != reminder['id']]
+        result = process_single_reminder(reminder, model, activate_immediately=False, batch_context=other_reminders_in_batch)
         if result and result.get('status') == 'should_activate':
             activated_contexts.append(result['context'])
             activated_ids.append(result['id'])
@@ -846,10 +847,11 @@ def check_and_activate_reminders(model):
         if conn:
             conn.close()
 
-def process_single_reminder(reminder, model, activate_immediately=True):
+def process_single_reminder(reminder, model, activate_immediately=True, batch_context=None):
     """
     Обрабатывает одно напоминание.
     Если activate_immediately=False, возвращает результат для пакетной обработки.
+    batch_context - другие напоминания, обрабатываемые в той же пачке.
     """
     conn = None
     try:
@@ -858,7 +860,7 @@ def process_single_reminder(reminder, model, activate_immediately=True):
         # Собираем контекст клиента (аналогично context_builder.py)
         context = collect_client_context(conn, reminder['conv_id'])
         
-        # Получаем все активные напоминания для клиента
+        # Получаем все активные напоминания для клиента из БД
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             cur.execute("""
                 SELECT reminder_datetime, reminder_context_summary 
@@ -867,11 +869,16 @@ def process_single_reminder(reminder, model, activate_immediately=True):
                 ORDER BY reminder_datetime
             """, (reminder['conv_id'], reminder['id']))
             
-            other_reminders = cur.fetchall()
+            other_reminders_from_db = cur.fetchall()
             
+        # Добавляем напоминания из текущей пачки для полного контекста
+        all_other_reminders = other_reminders_from_db
+        if batch_context:
+            all_other_reminders.extend(batch_context)
+        
         # Формируем промпт для проверки
         reminders_text = []
-        for rem in other_reminders:
+        for rem in all_other_reminders:
             reminders_text.append(f"- {rem['reminder_datetime']}: {rem['reminder_context_summary']}")
         
         # Определяем, является ли напоминание для администратора

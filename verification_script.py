@@ -16,7 +16,7 @@ import psycopg2
 import psycopg2.extras
 from datetime import datetime, timedelta, timezone
 import re
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 import subprocess
 import tempfile
 
@@ -180,7 +180,7 @@ def get_actual_reminders(conn, conv_id: Optional[int] = None) -> List[Dict]:
     except psycopg2.Error as e:
         raise Exception(f"Ошибка получения напоминаний: {e}")
 
-def compare_results(expected: Dict, actual: List[Dict]) -> tuple[bool, str]:
+def compare_results(expected: Dict, actual: List[Dict]) -> Tuple[bool, str]:
     """Сравнивает ожидаемый и фактический результат."""
     # Для простых случаев с одним напоминанием
     if 'action' in expected:

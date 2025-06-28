@@ -527,12 +527,6 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                     if user_messages:
                         last_user_msg = user_messages[0]  # Самое последнее
                         logging.info(f"Последнее сообщение пользователя: '{last_user_msg['message']}'")
-                        # Проверяем паттерны команд
-                        msg_lower = last_user_msg['message'].lower()
-                        if 'отмени' in msg_lower or 'cancel' in msg_lower:
-                            logging.warning("ВНИМАНИЕ: В сообщении обнаружены слова отмены!")
-                        if 'напомни' in msg_lower or 'remind' in msg_lower:
-                            logging.info("В сообщении обнаружены слова создания напоминания")
                     logging.info("=== КОНЕЦ АНАЛИЗА АДМИНИСТРАТОРА ===")
             else:
                 user_info = f"conv_id={conv_id}, часовой пояс={client_timezone}"
@@ -667,9 +661,12 @@ def create_or_update_reminder(conn, conv_id, reminder_data, created_by_conv_id=N
                 cur.execute("""
                     UPDATE reminders 
                     SET reminder_datetime = %s, reminder_context_summary = %s
-                    WHERE conv_id = %s AND status = 'active'
-                    ORDER BY created_at DESC
-                    LIMIT 1
+                    WHERE id = (
+                        SELECT id FROM reminders
+                        WHERE conv_id = %s AND status = 'active'
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    )
                 """, (
                     reminder_dt,
                     reminder_data['reminder_context_summary'],

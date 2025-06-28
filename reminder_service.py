@@ -59,9 +59,6 @@ API_TIMEOUT = 45
 # Интервал проверки напоминаний (в минутах)
 CHECK_INTERVAL_MINUTES = 5
 
-# Настройки логирования
-LOG_FILE_NAME = "reminder_service.log"
-
 # Словарь для определения часового пояса по городу
 CITY_TIMEZONE_MAP = {
     # Россия
@@ -369,12 +366,11 @@ PROMPT_VERIFY_REMINDER = """
 # --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 
 def setup_logging():
-    """Настройка системы логирования."""
+    """Настройка системы логирования для Railway (только терминал)."""
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(funcName)s - %(message)s',
+        format='%(asctime)s - REMINDER_SERVICE - %(levelname)s - %(funcName)s - %(message)s',
         handlers=[
-            logging.FileHandler(LOG_FILE_NAME, mode='a', encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
         ]
     )

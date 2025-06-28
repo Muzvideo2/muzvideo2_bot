@@ -592,10 +592,12 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             # Вызываем AI для анализа
             result = call_gemini_api(model, prompt, expect_json=True)
             
-            # Обрабатываем результат, который теперь является списком
-            reminders_to_process = result.get('reminders', [])
-            if isinstance(result, list): # Для обратной совместимости, если модель вернет список
+            # Обрабатываем результат, который может быть списком или словарем
+            reminders_to_process = []
+            if isinstance(result, list):
                 reminders_to_process = result
+            elif isinstance(result, dict):
+                reminders_to_process = result.get('reminders', [])
 
             if reminders_to_process:
                 processed_reminders = []

@@ -53,7 +53,6 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "zeta-tracer-462306-r7")
 LOCATION = os.environ.get("GEMINI_LOCATION", "us-central1")
 ADMIN_CONV_ID = 78671089  # ID администратора
-MAIN_BOT_URL = os.environ.get("MAIN_BOT_URL", "http://127.0.0.1:5000")
 
 MODEL_NAME = "gemini-2.5-flash"
 API_TIMEOUT = 45
@@ -792,12 +791,15 @@ def process_single_reminder(reminder, model):
                 
                 # Вызываем эндпоинт в main.py для активации ответа
                 try:
-                    activate_url = f"{MAIN_BOT_URL}/activate_reminder"
+                    # Формируем внутренний URL для вызова внутри того же контейнера
+                    port = os.environ.get("PORT", 5000)
+                    activate_url = f"http://127.0.0.1:{port}/activate_reminder"
+                    
                     payload = {
                         "conv_id": reminder['conv_id'],
                         "reminder_context_summary": reminder['reminder_context_summary']
                     }
-                    logging.info(f"Вызов эндпоинта активации: {activate_url} с payload: {payload}")
+                    logging.info(f"Вызов внутреннего эндпоинта активации: {activate_url} с payload: {payload}")
                     
                     response = requests.post(activate_url, json=payload, timeout=30)
                     response.raise_for_status()

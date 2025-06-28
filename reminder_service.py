@@ -36,6 +36,7 @@ from datetime import datetime, timedelta, timezone
 import threading
 from apscheduler.schedulers.background import BackgroundScheduler
 import pytz
+import requests
 
 try:
     import vertexai
@@ -52,6 +53,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "zeta-tracer-462306-r7")
 LOCATION = os.environ.get("GEMINI_LOCATION", "us-central1")
 ADMIN_CONV_ID = 78671089  # ID администратора
+MAIN_BOT_URL = os.environ.get("MAIN_BOT_URL", "http://127.0.0.1:5000")
 
 MODEL_NAME = "gemini-2.5-flash"
 API_TIMEOUT = 45
@@ -788,16 +790,31 @@ def process_single_reminder(reminder, model):
                 # Активируем напоминание
                 logging.info(f"Напоминание ID={reminder['id']} прошло проверку и будет активировано")
                 
-                # Здесь должен быть вызов основного AI-коммуникатора
-                # Для этого нужна интеграция с main.py
-                # Пока просто помечаем как выполненное
-                cur.execute(
-                    "UPDATE reminders SET status = 'done' WHERE id = %s",
-                    (reminder['id'],)
-                )
-                
-                # TODO: Вызвать generate_and_send_response из main.py
-                # с инъекцией контекста напоминания
+                # Вызываем эндпоинт в main.py для активации ответа
+                try:
+                    activate_url = f"{MAIN_BOT_URL}/activate_reminder"
+                    payload = {
+                        "conv_id": reminder['conv_id'],
+                        "reminder_context_summary": reminder['reminder_context_summary']
+                    }
+                    logging.info(f"Вызов эндпоинта активации: {activate_url} с payload: {payload}")
+                    
+                    response = requests.post(activate_url, json=payload, timeout=30)
+                    response.raise_for_status()
+                    
+                    logging.info(f"Эндпоинт активации успешно вызван для напоминания ID={reminder['id']}. Ответ: {response.json()}")
+                    
+                    # Помечаем как выполненное
+                    cur.execute(
+                        "UPDATE reminders SET status = 'done' WHERE id = %s",
+                        (reminder['id'],)
+                    )
+
+                except requests.exceptions.RequestException as e:
+                    logging.error(f"Ошибка при вызове эндпоинта активации для напоминания ID={reminder['id']}: {e}")
+                    # При ошибке напоминание останется в статусе 'in_progress', 
+                    # и блок except выше вернет его в 'active'
+                    raise  # Передаем исключение выше, чтобы сработал rollback и возврат статуса
                 
             else:
                 # Отменяем или переносим напоминание

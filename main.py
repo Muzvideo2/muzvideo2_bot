@@ -681,7 +681,9 @@ def generate_response(user_question_text, context_from_builder, current_custom_p
     if knowledge_hint_text:
         prompt_parts.append(knowledge_hint_text)
 
-    prompt_parts.append(f"Текущий вопрос от {user_first_name if user_first_name else 'Пользователя'}: {user_question_text}")
+    if user_question_text:
+        prompt_parts.append(f"Текущий вопрос от {user_first_name if user_first_name else 'Пользователя'}: {user_question_text}")
+    
     prompt_parts.append("Твой ответ (Модель):")
 
     full_prompt_text = "\n\n".join(prompt_parts)
@@ -909,7 +911,7 @@ def handle_new_message(user_id_from_vk, message_text_from_vk, vk_api_object, vk_
 # ====
 def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callback_data, model, reminder_context=None):
     """
-    Вызывается по истечении USER_MESSAGE_BUFFERING_DELAY.
+    Вызывается по истечении USER_MESSAGE_BUFFERING_DELAY или при активации напоминания.
     """
     logging.info(f"Вызвана функция generate_and_send_response для conv_id: {conv_id_to_respond}")
 
@@ -925,17 +927,24 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
         logging.info(f"Ответ для conv_id {conv_id_to_respond} не будет сгенерирован: активен локальный таймер оператора (operator_timers).")
         return
 
-    buffered_messages = user_buffers.get(conv_id_to_respond, [])
-    if not buffered_messages:
-        logging.info(f"Нет сообщений в буфере для conv_id {conv_id_to_respond}. Ответ не генерируется.")
-        if conv_id_to_respond in client_timers:
-            del client_timers[conv_id_to_respond]
-            logging.debug(f"Клиентский таймер для conv_id {conv_id_to_respond} удален (пустой буфер).")
-        return
+    is_reminder_call = reminder_context is not None
+    combined_user_text = ""
 
-    combined_user_text = "\n".join(buffered_messages).strip()
-    logging.info(f"Сообщения для conv_id {conv_id_to_respond} извлечены из буфера. Объединенный текст: '{combined_user_text[:100]}...'")
-    user_buffers[conv_id_to_respond] = []
+    if not is_reminder_call:
+        buffered_messages = user_buffers.get(conv_id_to_respond, [])
+        if not buffered_messages:
+            logging.info(f"Нет сообщений в буфере для conv_id {conv_id_to_respond}. Ответ не генерируется.")
+            if conv_id_to_respond in client_timers:
+                del client_timers[conv_id_to_respond]
+                logging.debug(f"Клиентский таймер для conv_id {conv_id_to_respond} удален (пустой буфер).")
+            return
+        
+        combined_user_text = "\n".join(buffered_messages).strip()
+        logging.info(f"Сообщения для conv_id {conv_id_to_respond} извлечены из буфера. Объединенный текст: '{combined_user_text[:100]}...'")
+        user_buffers[conv_id_to_respond] = []
+    else:
+        logging.info(f"Это вызов по напоминанию для conv_id {conv_id_to_respond} (контекст: '{reminder_context}'). Буфер сообщений не используется.")
+        # combined_user_text остается пустым, так как вопрос генерируется на основе контекста напоминания.
 
     if conv_id_to_respond in client_timers:
         del client_timers[conv_id_to_respond]
@@ -971,16 +980,18 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
     timestamp_utc_for_db = datetime.utcnow()
     timestamp_in_message_text = (timestamp_utc_for_db + timedelta(hours=6)).strftime("%Y-%m-%d_%H-%M-%S")
 
-    user_message_with_ts_for_storage = f"[{timestamp_in_message_text}] {combined_user_text}"
-    store_dialog_in_db(
-        conv_id=conv_id_to_respond, 
-        role="user", 
-        message_text_with_timestamp=user_message_with_ts_for_storage,
-        client_info=""
-    )
-    dialog_history_dict.setdefault(conv_id_to_respond, []).append(
-        {"user": user_message_with_ts_for_storage, "client_info": ""}
-    )
+    # Для вызовов по напоминанию не сохраняем "пустое" сообщение пользователя
+    if not is_reminder_call:
+        user_message_with_ts_for_storage = f"[{timestamp_in_message_text}] {combined_user_text}"
+        store_dialog_in_db(
+            conv_id=conv_id_to_respond, 
+            role="user", 
+            message_text_with_timestamp=user_message_with_ts_for_storage,
+            client_info=""
+        )
+        dialog_history_dict.setdefault(conv_id_to_respond, []).append(
+            {"user": user_message_with_ts_for_storage, "client_info": ""}
+        )
 
     bot_message_with_ts_for_storage = f"[{timestamp_in_message_text}] {bot_response_text}"
     store_dialog_in_db(
@@ -997,9 +1008,13 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
     if log_file_path_for_processed:
         try:
             with open(log_file_path_for_processed, "a", encoding="utf-8") as log_f:
-                log_f.write(f"[{timestamp_in_message_text}] {user_display_name} (processed): {combined_user_text}\n")
-                if relevant_titles_from_kb:
-                    log_f.write(f"[{timestamp_in_message_text}] Найденные ключи БЗ (для processed): {', '.join(relevant_titles_from_kb)}\n")
+                if not is_reminder_call:
+                    log_f.write(f"[{timestamp_in_message_text}] {user_display_name} (processed): {combined_user_text}\n")
+                    if relevant_titles_from_kb:
+                        log_f.write(f"[{timestamp_in_message_text}] Найденные ключи БЗ (для processed): {', '.join(relevant_titles_from_kb)}\n")
+                else:
+                    log_f.write(f"[{timestamp_in_message_text}] Активировано напоминание: {reminder_context}\n")
+
                 log_f.write(f"[{timestamp_in_message_text}] Context Builder: Context retrieved successfully\n")
                 log_f.write(f"[{timestamp_in_message_text}] Модель: {bot_response_text}\n\n")
         except Exception as e:

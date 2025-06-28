@@ -956,6 +956,11 @@ def start_scheduler(model):
     scheduler.start()
     logging.info(f"Планировщик запущен. Проверка напоминаний каждые {CHECK_INTERVAL_MINUTES} минут.")
 
+    # Немедленный первый запуск проверки в отдельном потоке
+    logging.info("Запускаем немедленную проверку напоминаний при старте сервиса...")
+    initial_check_thread = threading.Thread(target=check_and_activate_reminders, args=(model,), daemon=True)
+    initial_check_thread.start()
+
 def stop_scheduler():
     """Останавливает планировщик."""
     global scheduler

@@ -493,11 +493,24 @@ def activate_reminder():
         vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
         vk_api_local = vk_session.get_api()
         
+        # Создаем минимальный vk_callback_data, который ожидает context_builder
+        mock_callback_data = {
+            "object": {
+                "message": {
+                    # context_builder использует 'from_id' для входящих и 'peer_id' для исходящих.
+                    # Для надежности передаем conv_id в оба поля.
+                    "from_id": conv_id,
+                    "peer_id": conv_id 
+                }
+            },
+            "group_id": VK_COMMUNITY_ID
+        }
+
         # Генерируем и отправляем ответ с контекстом напоминания
         generate_and_send_response(
             conv_id_to_respond=conv_id,
             vk_api_for_sending=vk_api_local,
-            vk_callback_data={},  # Минимальные данные
+            vk_callback_data=mock_callback_data,
             model=app.model,
             reminder_context=reminder_context
         )

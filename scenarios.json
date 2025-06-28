@@ -1,0 +1,761 @@
+{
+  "test_scenarios": [
+    {
+      "id": "simple_direct_01",
+      "category": "Простые постановки - Клиент",
+      "description": "Клиент прямо просит напомнить об оплате завтра в 10:00",
+      "initial_db_state": {
+        "reminders": [],
+        "user_profiles": [{"conv_id": 12345678, "first_name": "Иван", "last_name": "Иванов"}]
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Отлично, напомните мне завтра в 10 утра оплатить курс."}
+      ],
+      "expected_result": {
+        "action": "create",
+        "target_conv_id": 12345678,
+        "reminder_context_summary": "Клиент попросил напомнить об оплате курса завтра в 10:00",
+        "status": "active"
+      }
+    },
+    {
+      "id": "simple_implicit_01",
+      "category": "Простые постановки - Клиент",
+      "description": "Клиент неявно указывает на необходимость подумать",
+      "initial_db_state": {
+        "reminders": [],
+        "user_profiles": [{"conv_id": 23456789, "first_name": "Мария", "last_name": "Петрова"}]
+      },
+      "dialogue_flow": [
+        {"role": "bot", "message": "Курс 'Импровизация' стоит 15000 рублей. Могу оформить для вас заказ?"},
+        {"role": "user", "message": "Мне нужно подумать до понедельника, спасибо."}
+      ],
+      "expected_result": {
+        "action": "create",
+        "target_conv_id": 23456789,
+        "reminder_context_summary": "Клиент взял время подумать над курсом 'Импровизация' до понедельника",
+        "status": "active"
+      }
+    },
+    {
+      "id": "simple_cancel_01",
+      "category": "Отмена напоминания - Клиент",
+      "description": "Клиент отменяет ранее установленное напоминание",
+      "initial_db_state": {
+        "reminders": [
+          {
+            "id": 1,
+            "conv_id": 34567890,
+            "status": "active",
+            "reminder_context_summary": "Напомнить об оплате"
+          }
+        ]
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Спасибо, уже не нужно напоминать, я разобрался и оплатил."}
+      ],
+      "expected_result": {
+        "action": "cancel",
+        "target_conv_id": 34567890,
+        "cancellation_reason": "Клиент уже оплатил",
+        "status": "cancelled_by_user"
+      }
+    },
+    {
+      "id": "negative_personal_01",
+      "category": "Негативные сценарии",
+      "description": "Клиент просит напомнить о личном деле",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Можете напомнить мне завтра вынести мусор?"}
+      ],
+      "expected_result": {
+        "action": "none"
+      }
+    },
+    {
+      "id": "admin_to_client_01",
+      "category": "Админ команды",
+      "description": "Администратор ставит напоминание для конкретного клиента",
+      "initial_db_state": {
+        "reminders": [],
+        "user_profiles": [
+          {"conv_id": 78671089, "first_name": "Админ", "last_name": "Админов"},
+          {"conv_id": 8475643, "first_name": "Клиент", "last_name": "Клиентов"}
+        ]
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Напомни conv_id: 8475643 завтра в 12:00, что он обещал подумать над курсом Импровизации", "from_conv_id": 78671089}
+      ],
+      "expected_result": {
+        "action": "create",
+        "target_conv_id": 8475643,
+        "created_by_conv_id": 78671089,
+        "reminder_context_summary": "Администратор просил напомнить клиенту, что он обещал подумать над курсом 'Импровизация'",
+        "status": "active"
+      }
+    },
+    {
+      "id": "admin_to_self_01",
+      "category": "Админ команды",
+      "description": "Администратор ставит напоминание себе",
+      "initial_db_state": {
+        "reminders": [],
+        "user_profiles": [{"conv_id": 78671089, "first_name": "Админ", "last_name": "Админов"}]
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Напомни мне в 15:30 проверить почту", "from_conv_id": 78671089}
+      ],
+      "expected_result": {
+        "action": "create",
+        "target_conv_id": 78671089,
+        "created_by_conv_id": 78671089,
+        "reminder_context_summary": "Напоминание для администратора: проверить почту",
+        "status": "active"
+      }
+    },
+    {
+      "id": "stress_test_01",
+      "category": "Стресс-тесты",
+      "description": "Упоминание времени в нерелевантном контексте",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Я посмотрел фильм 'Послезавтра', он длился час. Какая у вас цена на завтрак?"}
+      ],
+      "expected_result": {
+        "action": "none"
+      }
+    },
+    {
+      "id": "multi_step_clarify_01",
+      "category": "Многошаговые диалоги",
+      "description": "Клиент уточняет время напоминания",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Напомните мне об оплате"},
+        {"role": "bot", "message": "Конечно! Когда вам удобно получить напоминание?"},
+        {"role": "user", "message": "Давайте в пятницу утром"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "target_conv_id": 45678901,
+        "reminder_context_summary": "Клиент попросил напомнить об оплате в пятницу утром",
+        "status": "active"
+      }
+    },
+    {
+      "id": "multi_step_reschedule_01",
+      "category": "Многошаговые диалоги",
+      "description": "Клиент переносит напоминание",
+      "initial_db_state": {
+        "reminders": [
+          {
+            "id": 2,
+            "conv_id": 56789012,
+            "status": "active",
+            "reminder_context_summary": "Напомнить о консультации в понедельник"
+          }
+        ]
+      },
+      "dialogue_flow": [
+        {"role": "bot", "message": "Напоминаю, что вы хотели записаться на консультацию"},
+        {"role": "user", "message": "Ой, давайте лучше перенесем на вторник"},
+        {"role": "bot", "message": "Хорошо, перенесу напоминание на вторник"}
+      ],
+      "expected_result": {
+        "action": "update",
+        "target_conv_id": 56789012,
+        "reminder_context_summary": "Напомнить о консультации во вторник (перенесено с понедельника)",
+        "status": "active"
+      }
+    },
+    {
+      "id": "multi_step_cancel_create_01",
+      "category": "Многошаговые диалоги",
+      "description": "Клиент отменяет старое и создает новое напоминание",
+      "initial_db_state": {
+        "reminders": [
+          {
+            "id": 3,
+            "conv_id": 67890123,
+            "status": "active",
+            "reminder_context_summary": "Напомнить об оплате курса"
+          }
+        ]
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Я уже оплатил курс, спасибо"},
+        {"role": "bot", "message": "Отлично! Отменяю напоминание об оплате"},
+        {"role": "user", "message": "Но напомните мне через неделю о начале занятий"}
+      ],
+      "expected_result": {
+        "reminders": [
+          {
+            "conv_id": 67890123,
+            "status": "cancelled_by_user",
+            "cancellation_reason": "Клиент уже оплатил курс"
+          },
+          {
+            "conv_id": 67890123,
+            "status": "active",
+            "reminder_context_summary": "Напомнить о начале занятий через неделю"
+          }
+        ]
+      }
+    },
+    {
+      "id": "activation_success_01",
+      "category": "Активация напоминаний",
+      "description": "Напоминание активируется успешно",
+      "initial_db_state": {
+        "reminders": [
+          {
+            "id": 4,
+            "conv_id": 78901234,
+            "status": "active",
+            "reminder_context_summary": "Напомнить об оплате курса",
+            "reminder_datetime": "NOW"
+          }
+        ],
+        "dialogues": [
+          {"role": "user", "message": "Хочу купить курс, но нужно подумать"},
+          {"role": "bot", "message": "Конечно, я напомню вам позже"}
+        ]
+      },
+      "expected_activation": {
+        "should_activate": true,
+        "reason": "Клиент еще не принял решение по курсу",
+        "suggested_action": "activate"
+      }
+    },
+    {
+      "id": "activation_cancel_01",
+      "category": "Активация напоминаний",
+      "description": "Напоминание отменяется при активации - клиент уже купил",
+      "initial_db_state": {
+        "reminders": [
+          {
+            "id": 5,
+            "conv_id": 89012345,
+            "status": "active",
+            "reminder_context_summary": "Напомнить об оплате курса",
+            "reminder_datetime": "NOW"
+          }
+        ],
+        "dialogues": [
+          {"role": "user", "message": "Хочу купить курс"},
+          {"role": "bot", "message": "Я напомню вам об оплате"},
+          {"role": "user", "message": "Я уже купил курс, спасибо!"}
+        ],
+        "client_purchases": [
+          {"conv_id": 89012345, "product_name": "Курс импровизации"}
+        ]
+      },
+      "expected_activation": {
+        "should_activate": false,
+        "reason": "Клиент уже совершил покупку после установки напоминания",
+        "suggested_action": "cancel"
+      }
+    },
+    {
+      "id": "time_interpretation_01",
+      "category": "Интерпретация времени",
+      "description": "Завтра интерпретируется как следующий день в 10:00",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Напомните завтра про оплату"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "proposed_datetime_pattern": "NEXT_DAY_10:00"
+      }
+    },
+    {
+      "id": "time_interpretation_02",
+      "category": "Интерпретация времени",
+      "description": "Вечером интерпретируется как 19:00",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Позвоните мне вечером насчет курса"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "proposed_datetime_pattern": "TODAY_OR_TOMORROW_19:00"
+      }
+    },
+    {
+      "id": "admin_cancel_client_01",
+      "category": "Админ команды",
+      "description": "Администратор отменяет напоминание клиента",
+      "initial_db_state": {
+        "reminders": [
+          {
+            "id": 6,
+            "conv_id": 90123456,
+            "status": "active",
+            "reminder_context_summary": "Напомнить о консультации"
+          }
+        ]
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Отмени напоминание для conv_id: 90123456", "from_conv_id": 78671089}
+      ],
+      "expected_result": {
+        "action": "cancel",
+        "target_conv_id": 90123456,
+        "status": "cancelled_by_admin",
+        "cancellation_reason": "Отменено администратором"
+      }
+    },
+    {
+      "id": "complex_context_01",
+      "category": "Сложные сценарии",
+      "description": "Напоминание в контексте длинного диалога",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Здравствуйте, интересует обучение игре на фортепиано"},
+        {"role": "bot", "message": "Добрый день! У нас есть несколько курсов..."},
+        {"role": "user", "message": "А есть курс по джазовой импровизации?"},
+        {"role": "bot", "message": "Да, курс 'Джазовая импровизация' стоит 20000 рублей"},
+        {"role": "user", "message": "Дороговато... Мне нужно посоветоваться с женой. Напишите мне в среду, пожалуйста"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "reminder_context_summary": "Клиент интересовался курсом 'Джазовая импровизация', нужно посоветоваться с женой. Просил написать в среду",
+        "status": "active"
+      }
+    },
+    {
+      "id": "multiple_reminders_01",
+      "category": "Сложные сценарии",
+      "description": "Клиент с несколькими активными напоминаниями",
+      "initial_db_state": {
+        "reminders": [
+          {
+            "id": 7,
+            "conv_id": 11223344,
+            "status": "active",
+            "reminder_context_summary": "Напомнить об оплате курса"
+          }
+        ]
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "И еще напомните мне в пятницу о консультации"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "reminder_context_summary": "Напомнить о консультации в пятницу",
+        "status": "active"
+      }
+    },
+    {
+      "id": "negative_refusal_01",
+      "category": "Негативные сценарии",
+      "description": "Клиент отказывается от услуг",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "bot", "message": "Могу предложить вам скидку на курс"},
+        {"role": "user", "message": "Спасибо, но я передумал учиться. Не беспокойте меня больше"}
+      ],
+      "expected_result": {
+        "action": "none"
+      }
+    },
+    {
+      "id": "implicit_time_01",
+      "category": "Интерпретация времени",
+      "description": "Через пару дней",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Дайте подумать пару дней"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "proposed_datetime_pattern": "PLUS_2_DAYS_12:00",
+        "reminder_context_summary": "Клиент попросил время подумать пару дней"
+      }
+    },
+    {
+      "id": "timezone_aware_01",
+      "category": "Часовые пояса",
+      "description": "Клиент из другого часового пояса",
+      "initial_db_state": {
+        "reminders": [],
+        "user_profiles": [
+          {
+            "conv_id": 22334455,
+            "first_name": "Владимир",
+            "client_timezone": "Asia/Vladivostok"
+          }
+        ]
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Напомните мне завтра в 9 утра по моему времени"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "client_timezone": "Asia/Vladivostok",
+        "reminder_context_summary": "Напоминание в 9:00 по владивостокскому времени"
+      }
+    },
+    {
+      "id": "activation_postpone_01",
+      "category": "Активация напоминаний",
+      "description": "Напоминание переносится при активации",
+      "initial_db_state": {
+        "reminders": [
+          {
+            "id": 8,
+            "conv_id": 33445566,
+            "status": "active",
+            "reminder_context_summary": "Напомнить о решении по курсу",
+            "reminder_datetime": "NOW"
+          }
+        ],
+        "dialogues": [
+          {"role": "user", "message": "Я еще думаю"},
+          {"role": "bot", "message": "Хорошо, я напомню позже"},
+          {"role": "user", "message": "У меня сейчас много работы, давайте через неделю"}
+        ]
+      },
+      "expected_activation": {
+        "should_activate": false,
+        "reason": "Клиент попросил отложить решение на неделю",
+        "suggested_action": "postpone",
+        "postpone_to": "PLUS_7_DAYS"
+      }
+    },
+    {
+      "id": "edge_case_past_time_01",
+      "category": "Крайние случаи",
+      "description": "Клиент указывает прошедшее время",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Напомните мне вчера в 10:00"}
+      ],
+      "expected_result": {
+        "action": "none"
+      }
+    },
+    {
+      "id": "edge_case_ambiguous_01",
+      "category": "Крайние случаи",
+      "description": "Неоднозначное указание времени",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Напомните как-нибудь"}
+      ],
+      "expected_result": {
+        "action": "none"
+      }
+    },
+    {
+      "id": "business_hours_01",
+      "category": "Бизнес-логика",
+      "description": "Напоминание в рабочее время",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Позвоните мне в рабочее время насчет курса"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "proposed_datetime_pattern": "NEXT_WORKDAY_12:00",
+        "reminder_context_summary": "Клиент просил позвонить в рабочее время насчет курса"
+      }
+    },
+    {
+      "id": "multi_step_confusion_01",
+      "category": "Многошаговые диалоги",
+      "description": "Клиент меняет мнение несколько раз",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Напомните мне завтра"},
+        {"role": "bot", "message": "Хорошо, напомню завтра"},
+        {"role": "user", "message": "Хотя нет, лучше послезавтра"},
+        {"role": "bot", "message": "Понял, перенесу на послезавтра"},
+        {"role": "user", "message": "Знаете что, давайте в понедельник утром"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "reminder_context_summary": "Клиент после нескольких изменений попросил напомнить в понедельник утром",
+        "proposed_datetime_pattern": "MONDAY_10:00"
+      }
+    },
+    {
+      "id": "context_purchase_decision_01",
+      "category": "Контекстные решения",
+      "description": "Напоминание о принятии решения по покупке",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "bot", "message": "Курс 'Гармония' со скидкой - 12000 рублей"},
+        {"role": "user", "message": "Интересно... Я подумаю до выходных"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "reminder_context_summary": "Клиент заинтересовался курсом 'Гармония' со скидкой (12000р), обещал подумать до выходных",
+        "proposed_datetime_pattern": "SATURDAY_12:00"
+      }
+    },
+    {
+      "id": "admin_batch_01",
+      "category": "Админ команды",
+      "description": "Администратор ставит несколько напоминаний подряд",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Напомни conv_id: 44556677 завтра в 10:00 об оплате", "from_conv_id": 78671089},
+        {"role": "user", "message": "И еще напомни conv_id: 55667788 в среду о консультации", "from_conv_id": 78671089}
+      ],
+      "expected_result": {
+        "reminders": [
+          {
+            "target_conv_id": 44556677,
+            "created_by_conv_id": 78671089,
+            "reminder_context_summary": "Администратор просил напомнить об оплате"
+          },
+          {
+            "target_conv_id": 55667788,
+            "created_by_conv_id": 78671089,
+            "reminder_context_summary": "Администратор просил напомнить о консультации"
+          }
+        ]
+      }
+    },
+    {
+      "id": "negative_spam_01",
+      "category": "Негативные сценарии",
+      "description": "Попытка создать слишком много напоминаний",
+      "initial_db_state": {
+        "reminders": [
+          {"conv_id": 66778899, "status": "active"},
+          {"conv_id": 66778899, "status": "active"},
+          {"conv_id": 66778899, "status": "active"},
+          {"conv_id": 66778899, "status": "active"},
+          {"conv_id": 66778899, "status": "active"}
+        ]
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "И еще напомните мне через час"}
+      ],
+      "expected_result": {
+        "action": "none",
+        "reason": "Слишком много активных напоминаний"
+      }
+    },
+    {
+      "id": "payment_reminder_chain_01",
+      "category": "Бизнес-логика",
+      "description": "Цепочка напоминаний об оплате",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "bot", "message": "Напоминаю, что скидка действует только 3 дня"},
+        {"role": "user", "message": "Хорошо, напомните мне за день до окончания скидки"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "reminder_context_summary": "Напомнить за день до окончания скидки (через 2 дня)",
+        "proposed_datetime_pattern": "PLUS_2_DAYS_12:00"
+      }
+    },
+    {
+      "id": "consultation_booking_01",
+      "category": "Бизнес-логика",
+      "description": "Напоминание о бронировании консультации",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "bot", "message": "Могу предложить бесплатную консультацию с преподавателем"},
+        {"role": "user", "message": "Да, интересно. Напишите мне в начале следующей недели, я выберу время"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "reminder_context_summary": "Клиент заинтересован в бесплатной консультации, просил написать в начале следующей недели для выбора времени",
+        "proposed_datetime_pattern": "NEXT_MONDAY_10:00"
+      }
+    },
+    {
+      "id": "course_start_reminder_01",
+      "category": "Бизнес-логика",
+      "description": "Напоминание о начале курса",
+      "initial_db_state": {
+        "reminders": [],
+        "client_purchases": [
+          {"conv_id": 77889900, "product_name": "Курс 'Основы фортепиано'"}
+        ]
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Я оплатил курс. Когда начинаем?"},
+        {"role": "bot", "message": "Поздравляю! Курс начинается 1 февраля"},
+        {"role": "user", "message": "Отлично, напомните мне за пару дней до начала"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "reminder_context_summary": "Напомнить о начале курса 'Основы фортепиано' (начало 1 февраля)",
+        "status": "active"
+      }
+    },
+    {
+      "id": "mixed_conversation_01",
+      "category": "Сложные сценарии",
+      "description": "Диалог с участием клиента и администратора",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Хочу узнать про индивидуальные занятия", "from_conv_id": 88990011},
+        {"role": "operator", "message": "Добрый день! Сейчас уточню информацию", "from_conv_id": 78671089},
+        {"role": "operator", "message": "Индивидуальные занятия стоят 3000р/час", "from_conv_id": 78671089},
+        {"role": "user", "message": "Дорого... Мне нужно подумать", "from_conv_id": 88990011},
+        {"role": "operator", "message": "Напомни conv_id: 88990011 через 3 дня предложить пакет со скидкой", "from_conv_id": 78671089}
+      ],
+      "expected_result": {
+        "action": "create",
+        "target_conv_id": 88990011,
+        "created_by_conv_id": 78671089,
+        "reminder_context_summary": "Администратор просил предложить клиенту пакет индивидуальных занятий со скидкой",
+        "proposed_datetime_pattern": "PLUS_3_DAYS_12:00"
+      }
+    },
+    {
+      "id": "natural_language_01",
+      "category": "Естественный язык",
+      "description": "Сложная формулировка с естественным языком",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Слушайте, у меня сейчас цейтнот на работе, но курс очень интересный. Может, вы мне как-нибудь на следующей неделе напишете, когда все успокоится?"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "reminder_context_summary": "Клиент в цейтноте на работе, но заинтересован в курсе. Просил написать на следующей неделе",
+        "proposed_datetime_pattern": "NEXT_WEEK_MIDDLE"
+      }
+    },
+    {
+      "id": "conditional_reminder_01",
+      "category": "Условные напоминания",
+      "description": "Напоминание с условием",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Если у вас появятся новые курсы по джазу, напишите мне"},
+        {"role": "bot", "message": "Обязательно сообщим о новых курсах по джазу!"}
+      ],
+      "expected_result": {
+        "action": "none",
+        "reason": "Условное напоминание без конкретной даты"
+      }
+    },
+    {
+      "id": "activation_with_context_01",
+      "category": "Активация с контекстом",
+      "description": "Проверка контекста при активации - клиент ждет",
+      "initial_db_state": {
+        "reminders": [
+          {
+            "id": 10,
+            "conv_id": 99001122,
+            "status": "active",
+            "reminder_context_summary": "Клиент думает над покупкой курса 'Блюз'",
+            "reminder_datetime": "NOW"
+          }
+        ],
+        "dialogues": [
+          {"role": "user", "message": "Курс по блюзу звучит интересно"},
+          {"role": "bot", "message": "Это отличный выбор! Могу оформить заказ?"},
+          {"role": "user", "message": "Дайте подумать пару дней"}
+        ],
+        "user_profiles": [
+          {
+            "conv_id": 99001122,
+            "dialogue_summary": "Клиент интересуется курсом по блюзу, взял время на размышление"
+          }
+        ]
+      },
+      "expected_activation": {
+        "should_activate": true,
+        "reason": "Прошло запланированное время, клиент еще не принял решение",
+        "suggested_action": "activate"
+      }
+    },
+    {
+      "id": "recurring_reminder_attempt_01",
+      "category": "Крайние случаи",
+      "description": "Попытка создать повторяющееся напоминание",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Напоминайте мне каждую неделю о занятиях"}
+      ],
+      "expected_result": {
+        "action": "none",
+        "reason": "Повторяющиеся напоминания не поддерживаются"
+      }
+    },
+    {
+      "id": "specific_date_time_01",
+      "category": "Точное время",
+      "description": "Клиент указывает точную дату и время",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Напомните мне 25 января в 14:30 об оплате"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "reminder_context_summary": "Клиент попросил напомнить об оплате 25 января в 14:30",
+        "proposed_datetime_pattern": "2024-01-25T14:30:00"
+      }
+    },
+    {
+      "id": "weekend_interpretation_01",
+      "category": "Интерпретация времени",
+      "description": "На выходных",
+      "initial_db_state": {
+        "reminders": []
+      },
+      "dialogue_flow": [
+        {"role": "user", "message": "Я решу на выходных и напишу вам"}
+      ],
+      "expected_result": {
+        "action": "create",
+        "reminder_context_summary": "Клиент обещал принять решение и написать на выходных",
+        "proposed_datetime_pattern": "SATURDAY_12:00"
+      }
+    }
+  ]
+}

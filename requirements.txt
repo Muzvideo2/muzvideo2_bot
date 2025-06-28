@@ -6,3 +6,4 @@ openpyxl
 gunicorn
 APScheduler
 google-cloud-aiplatform
+pytz

@@ -21,6 +21,9 @@ import vertexai
 from vertexai.generative_models import GenerativeModel
 from google.oauth2 import service_account
 
+# Импорт сервиса напоминаний
+from reminder_service import process_new_message as process_reminder_message, initialize_reminder_service
+
 # ====
 # Читаем переменные окружения (секретные данные)
 # ====
@@ -452,6 +455,13 @@ try:
     vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=credentials)
     app.model = GenerativeModel(MODEL_NAME)
     logging.info("Учетные данные Vertex AI успешно загружены. Модель инициализирована.")
+    
+    # Инициализация сервиса напоминаний
+    try:
+        initialize_reminder_service()
+        logging.info("Сервис напоминаний успешно инициализирован.")
+    except Exception as e:
+        logging.error(f"Ошибка инициализации сервиса напоминаний: {e}")
 except Exception as e:
     logging.critical(f"КРИТИЧЕСКАЯ ОШИБКА: Не удалось инициализировать Vertex AI. Приложение не сможет работать. Ошибка: {e}")
     # В проде приложение может продолжить работать без модели, но будет выдавать ошибки.
@@ -977,6 +987,13 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
         call_summary_updater_async(conv_id_to_respond)
     except Exception as e:
         logging.error(f"Ошибка при запуске Summary Updater для conv_id {conv_id_to_respond}: {e}")
+    
+    # Обработка напоминаний
+    try:
+        process_reminder_message(conv_id_to_respond)
+        logging.info(f"Сервис напоминаний обработал сообщение для conv_id {conv_id_to_respond}")
+    except Exception as e:
+        logging.error(f"Ошибка при обработке напоминаний для conv_id {conv_id_to_respond}: {e}")
 
 
 # ====

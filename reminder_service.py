@@ -482,12 +482,6 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                 logging.info(f"Нет сообщений для анализа в диалоге {conv_id}")
                 return None
             
-            # Логируем сырые сообщения для диагностики
-            logging.info(f"=== СООБЩЕНИЯ ДИАЛОГА {conv_id} ДЛЯ АНАЛИЗА ===")
-            for i, msg in enumerate(reversed(messages)):
-                logging.info(f"Сообщение {i+1}: role={msg['role']}, message='{msg['message']}'")
-            logging.info("=== КОНЕЦ СООБЩЕНИЙ ===")
-            
             # Форматируем сообщения для промпта
             dialogue_text = []
             for msg in reversed(messages):
@@ -757,12 +751,12 @@ def process_reminder_batch(reminders, model):
         conn = get_db_connection()
         combined_context = f"У вас несколько сработавших напоминаний:\n\n" + "\n".join([f"- {ctx}" for ctx in activated_contexts])
 
-        port = os.environ.get("PORT", 5000)
+        port = os.environ.get("PORT", 8080)
         activate_url = f"http://127.0.0.1:{port}/activate_reminder"
         payload = {"conv_id": conv_id, "reminder_context_summary": combined_context}
         
         logging.info(f"ПАКЕТНАЯ АКТИВАЦИЯ для conv_id={conv_id} (ID: {activated_ids}): Отправляю запрос на {activate_url}")
-        response = requests.post(activate_url, json=payload, timeout=30)
+        response = requests.post(activate_url, json=payload, timeout=60)
         response.raise_for_status()
         
         response_text = response.text
@@ -918,7 +912,7 @@ def process_single_reminder(reminder, model, activate_immediately=True, batch_co
                 # Активируем напоминание
                 try:
                     # Формируем внутренний URL для вызова внутри того же контейнера
-                    port = os.environ.get("PORT", 5000)
+                    port = os.environ.get("PORT", 8080)
                     activate_url = f"http://127.0.0.1:{port}/activate_reminder"
                     
                     payload = {
@@ -927,7 +921,7 @@ def process_single_reminder(reminder, model, activate_immediately=True, batch_co
                     }
                     logging.info(f"АКТИВАЦИЯ ID={reminder['id']}: Отправляю запрос на {activate_url}")
                     
-                    response = requests.post(activate_url, json=payload, timeout=30)
+                    response = requests.post(activate_url, json=payload, timeout=60)
                     response.raise_for_status()
                     
                     response_text = response.text
@@ -1161,6 +1155,10 @@ def initialize_reminder_service():
     setup_logging()
     
     try:
+        # Логируем используемый порт для диагностики
+        port = os.environ.get("PORT", 8080)
+        logging.info(f"Сервис напоминаний будет использовать порт {port} для внутренних запросов активации.")
+        
         # Инициализация модели Vertex AI
         credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
         if not credentials_path:

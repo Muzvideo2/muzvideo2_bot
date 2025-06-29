@@ -501,7 +501,19 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             if conv_id == ADMIN_CONV_ID:
                 # Берем только сообщения за последние 10 минут
                 cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=10)
-                messages = [msg for msg in messages if msg['created_at'] > cutoff_time]
+                
+                # Исправляем проблему сравнения datetime с разными timezone
+                filtered_messages = []
+                for msg in messages:
+                    msg_time = msg['created_at']
+                    # Если время из БД без timezone, считаем его UTC
+                    if msg_time.tzinfo is None:
+                        msg_time = msg_time.replace(tzinfo=timezone.utc)
+                    
+                    if msg_time > cutoff_time:
+                        filtered_messages.append(msg)
+                
+                messages = filtered_messages
                 
                 if not messages:
                     logging.info(f"Нет свежих сообщений (за последние 10 минут) от администратора {conv_id}")
@@ -591,8 +603,18 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                     purchases_text.append(f"- {purchase['product_name']} (дата: {date_str}{amount_str})")
                 
                 # Проверяем недавние покупки
-                recent_purchases = [p for p in purchases if p['purchase_date'] and 
-                                  (datetime.now() - p['purchase_date']).total_seconds() < 86400]
+                current_analysis_time = datetime.now(timezone.utc)
+                recent_purchases = []
+                for p in purchases:
+                    if p['purchase_date']:
+                        purchase_time = p['purchase_date']
+                        # Если время из БД без timezone, считаем его UTC
+                        if purchase_time.tzinfo is None:
+                            purchase_time = purchase_time.replace(tzinfo=timezone.utc)
+                        
+                        time_diff = (current_analysis_time - purchase_time).total_seconds()
+                        if time_diff < 86400:  # 24 часа
+                            recent_purchases.append(p)
                 if recent_purchases:
                     purchases_text.append("\n⚠️ ВНИМАНИЕ: Есть покупки за последние 24 часа!")
 
@@ -1185,12 +1207,26 @@ def collect_client_context(conn, conv_id):
                     context_parts.append(f"- {purchase['product_name']} (дата: {date_str}{amount_str})")
                 
                 # Проверяем недавние покупки (за последние 24 часа)
-                recent_purchases = [p for p in purchases if p['purchase_date'] and 
-                                  (datetime.now() - p['purchase_date']).total_seconds() < 86400]
+                current_time = datetime.now(timezone.utc)
+                recent_purchases = []
+                for p in purchases:
+                    if p['purchase_date']:
+                        purchase_time = p['purchase_date']
+                        # Если время из БД без timezone, считаем его UTC
+                        if purchase_time.tzinfo is None:
+                            purchase_time = purchase_time.replace(tzinfo=timezone.utc)
+                        
+                        time_diff = (current_time - purchase_time).total_seconds()
+                        if time_diff < 86400:  # 24 часа
+                            recent_purchases.append(p)
                 if recent_purchases:
                     context_parts.append("\n⚠️ ВНИМАНИЕ: Есть покупки за последние 24 часа!")
                     for purchase in recent_purchases:
-                        hours_ago = int((datetime.now() - purchase['purchase_date']).total_seconds() / 3600)
+                        purchase_time = purchase['purchase_date']
+                        if purchase_time.tzinfo is None:
+                            purchase_time = purchase_time.replace(tzinfo=timezone.utc)
+                        
+                        hours_ago = int((current_time - purchase_time).total_seconds() / 3600)
                         context_parts.append(f"  • {purchase['product_name']} ({hours_ago} часов назад)")
     
     except Exception as e:

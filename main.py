@@ -8,6 +8,7 @@ import psycopg2.extras
 import subprocess
 from datetime import datetime, timedelta, timezone
 import threading
+from concurrent.futures import ThreadPoolExecutor  # Для асинхронного context builder
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
 from vk_api.utils import get_random_id
@@ -57,6 +58,9 @@ user_log_files = {}
 user_buffers = {}
 last_questions = {}
 
+# ThreadPoolExecutor для асинхронной обработки context builder
+context_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="ContextBuilder")
+
 # Константы
 USER_MESSAGE_BUFFERING_DELAY = 60
 EVENT_ID_TTL = 300  # Время жизни event_id в секундах (5 минут)
@@ -71,7 +75,7 @@ KNOWLEDGE_BASE_PATH = "knowledge_base.json"
 PROMPT_PATH = "prompt.txt"
 LOGS_DIRECTORY = "dialog_logs"
 
-CONTEXT_BUILDER_PATH = "context_builder.py"
+# CONTEXT_BUILDER_PATH = "context_builder.py"  # БОЛЬШЕ НЕ ИСПОЛЬЗУЕТСЯ - логика перенесена в main.py
 SUMMARY_UPDATER_PATH = "summary_updater.py"
 
 # ====
@@ -368,43 +372,11 @@ def store_dialog_in_db(conv_id, role, message_text_with_timestamp, client_info="
 # ====
 def call_context_builder(vk_callback_data):
     """
-    Вызывает внешний сервис context_builder.py для сбора контекста пользователя.
+    УСТАРЕВШАЯ ФУНКЦИЯ - НЕ ИСПОЛЬЗУЕТСЯ!
+    Заменена на call_context_builder_async для лучшей производительности.
     """
-    try:
-        process = subprocess.run(
-            ["python", CONTEXT_BUILDER_PATH],
-            input=json.dumps(vk_callback_data, ensure_ascii=False),
-            capture_output=True,
-            text=True,
-            encoding='utf-8',
-            timeout=45
-        )
-
-        if process.returncode != 0:
-            error_msg = f"Context Builder завершился с кодом ошибки {process.returncode}. stderr: {process.stderr}"
-            logging.error(error_msg)
-            raise Exception(error_msg)
-
-        context_text = process.stdout.strip()
-        if not context_text:
-            logging.warning("Context Builder вернул пустой результат")
-            return ""
-
-        logging.info(f"Context Builder успешно вернул контекст (длина: {len(context_text)} символов)")
-        return context_text
-
-    except subprocess.TimeoutExpired:
-        error_msg = "Context Builder превысил таймаут выполнения (30 секунд)"
-        logging.error(error_msg)
-        raise Exception(error_msg)
-    except FileNotFoundError:
-        error_msg = f"Файл {CONTEXT_BUILDER_PATH} не найден"
-        logging.error(error_msg)
-        raise Exception(error_msg)
-    except Exception as e:
-        error_msg = f"Ошибка при вызове Context Builder: {e}"
-        logging.error(error_msg)
-        raise Exception(error_msg)
+    logging.warning("Вызов устаревшей функции call_context_builder! Используйте call_context_builder_async")
+    return call_context_builder_async(vk_callback_data)
 
 
 def call_summary_updater_async(conv_id):
@@ -480,6 +452,7 @@ def ping_main_bot():
 def activate_reminder():
     """
     Эндпоинт для активации напоминания из reminder_service.
+    Оптимизированная версия для избежания worker timeout.
     """
     data = request.json
     conv_id = data.get("conv_id")
@@ -493,14 +466,35 @@ def activate_reminder():
         vk_session = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
         vk_api_local = vk_session.get_api()
         
-        # Создаем минимальный vk_callback_data, который ожидает context_builder
+        # Запускаем активацию в отдельном потоке для избежания блокировки
+        activation_thread = threading.Thread(
+            target=_activate_reminder_async,
+            args=(conv_id, reminder_context, vk_api_local),
+            daemon=True
+        )
+        activation_thread.start()
+        
+        # Быстро возвращаем успешный ответ
+        return jsonify({"status": "success", "message": "Activation started"}), 200
+        
+    except Exception as e:
+        logging.error(f"Ошибка при запуске активации напоминания: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+def _activate_reminder_async(conv_id, reminder_context, vk_api_object):
+    """
+    Асинхронная активация напоминания в отдельном потоке.
+    """
+    try:
+        logging.info(f"АСИНХРОННАЯ АКТИВАЦИЯ НАПОМИНАНИЯ: Начинаю обработку для conv_id={conv_id}")
+        
+        # Создаем минимальный vk_callback_data
         mock_callback_data = {
             "object": {
                 "message": {
-                    # context_builder использует 'from_id' для входящих и 'peer_id' для исходящих.
-                    # Для надежности передаем conv_id в оба поля.
                     "from_id": conv_id,
-                    "peer_id": conv_id 
+                    "peer_id": conv_id,
+                    "text": ""  # Пустой текст для напоминания
                 }
             },
             "group_id": VK_COMMUNITY_ID
@@ -509,17 +503,16 @@ def activate_reminder():
         # Генерируем и отправляем ответ с контекстом напоминания
         generate_and_send_response(
             conv_id_to_respond=conv_id,
-            vk_api_for_sending=vk_api_local,
+            vk_api_for_sending=vk_api_object,
             vk_callback_data=mock_callback_data,
             model=app.model,
             reminder_context=reminder_context
         )
         
-        return jsonify({"status": "success"}), 200
+        logging.info(f"АСИНХРОННАЯ АКТИВАЦИЯ НАПОМИНАНИЯ: Успешно завершена для conv_id={conv_id}")
         
     except Exception as e:
-        logging.error(f"Ошибка при активации напоминания: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        logging.error(f"АСИНХРОННАЯ АКТИВАЦИЯ НАПОМИНАНИЯ: Ошибка для conv_id={conv_id}: {e}", exc_info=True)
 
 @app.route("/clear_context/<int:user_conv_id>", methods=["POST"])
 def clear_context(user_conv_id):
@@ -967,8 +960,8 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
     user_display_name = f"{first_name} {last_name}".strip() if first_name or last_name else f"User_{conv_id_to_respond}"
 
     try:
-        context_from_builder = call_context_builder(vk_callback_data)
-        logging.info(f"Context Builder успешно вернул контекст для conv_id {conv_id_to_respond}")
+        context_from_builder = call_context_builder_async(vk_callback_data)
+        logging.info(f"Асинхронный Context Builder успешно вернул контекст для conv_id {conv_id_to_respond}")
 
         # Если это вызов от напоминания, добавляем контекст в начало промпта
         if reminder_context:
@@ -1159,6 +1152,293 @@ def callback_handler():
     )
 
     return "ok", 200
+
+# === ПЕРЕНЕСЕННЫЕ ФУНКЦИИ ИЗ CONTEXT_BUILDER.PY ===
+
+# Таблицы, которые нужно исключить из автоматического поиска
+EXCLUDED_TABLES = ['operator_activity']
+# Лимит на количество последних сообщений для истории диалога
+DIALOGUES_LIMIT = 30
+# Регулярное выражение для поиска email
+EMAIL_REGEX = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+
+def context_default_serializer(obj):
+    """Сериализатор для JSON, обрабатывающий datetime."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Тип {type(obj)} не сериализуется в JSON")
+
+def fetch_and_update_vk_profile(conn, conv_id):
+    """
+    Получает данные из VK API и обновляет/создает профиль пользователя в БД.
+    """
+    if not VK_COMMUNITY_TOKEN:
+        logging.warning("VK_COMMUNITY_TOKEN не установлен. Пропуск обновления профиля из VK.")
+        return
+
+    # Список полей, которые мы хотим получить из VK API
+    fields_to_request = "first_name,last_name,screen_name,sex,city,bdate"
+    
+    params = {
+        'user_ids': conv_id,
+        'fields': fields_to_request,
+        'access_token': VK_COMMUNITY_TOKEN,
+        'v': "5.131"
+    }
+    
+    try:
+        response = requests.get("https://api.vk.com/method/users.get", params=params, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        if 'error' in data or not data.get('response'):
+            logging.error(f"Ошибка VK API: {data.get('error', 'Нет ответа')}")
+            return
+
+        user_data = data['response'][0]
+
+        # Подготовка данных для записи в БД
+        profile = {
+            'conv_id': user_data.get('id'),
+            'first_name': user_data.get('first_name'),
+            'last_name': user_data.get('last_name'),
+            'screen_name': user_data.get('screen_name'),
+            'sex': {1: 'Женский', 2: 'Мужской', 0: 'Не указан'}.get(user_data.get('sex')),
+            'city': user_data.get('city', {}).get('title'),
+            'birth_day': None,
+            'birth_month': None,
+            'last_updated': datetime.now(timezone.utc)
+        }
+
+        # Парсинг даты рождения
+        if 'bdate' in user_data:
+            bdate_parts = user_data['bdate'].split('.')
+            if len(bdate_parts) >= 2:
+                profile['birth_day'] = int(bdate_parts[0])
+                profile['birth_month'] = int(bdate_parts[1])
+
+        # Используем INSERT ... ON CONFLICT (UPSERT) для атомарного создания/обновления
+        upsert_query = """
+        INSERT INTO user_profiles (conv_id, first_name, last_name, screen_name, sex, city, birth_day, birth_month, last_updated)
+        VALUES (%(conv_id)s, %(first_name)s, %(last_name)s, %(screen_name)s, %(sex)s, %(city)s, %(birth_day)s, %(birth_month)s, %(last_updated)s)
+        ON CONFLICT (conv_id) DO UPDATE SET
+            first_name = EXCLUDED.first_name,
+            last_name = EXCLUDED.last_name,
+            screen_name = EXCLUDED.screen_name,
+            sex = EXCLUDED.sex,
+            city = EXCLUDED.city,
+            birth_day = EXCLUDED.birth_day,
+            birth_month = EXCLUDED.birth_month,
+            last_updated = EXCLUDED.last_updated;
+        """
+        
+        with conn.cursor() as cur:
+            cur.execute(upsert_query, profile)
+            conn.commit()
+            logging.info(f"Профиль для conv_id {conv_id} успешно создан/обновлен из VK API.")
+
+    except requests.RequestException as e:
+        logging.error(f"Ошибка сети при запросе к VK API: {e}")
+    except (KeyError, IndexError) as e:
+        logging.error(f"Ошибка при парсинге ответа от VK API: {e}")
+    except psycopg2.Error as e:
+        conn.rollback()
+        logging.error(f"Ошибка БД при обновлении профиля: {e}")
+
+def update_conv_id_by_email(conn, conv_id, text):
+    """Ищет email в тексте и обновляет conv_id в таблице client_purchases."""
+    emails = re.findall(EMAIL_REGEX, text)
+    if not emails:
+        return
+
+    email_to_update = emails[0].lower()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE client_purchases
+                SET conv_id = %s
+                WHERE lower(email) = %s AND conv_id IS NULL;
+                """,
+                (conv_id, email_to_update)
+            )
+            updated_rows = cur.rowcount
+            if updated_rows > 0:
+                logging.info(f"Связано {updated_rows} покупок с conv_id {conv_id} по email {email_to_update}")
+        conn.commit()
+    except psycopg2.Error as e:
+        conn.rollback()
+        logging.error(f"Ошибка при обновлении conv_id по email: {e}")
+
+def find_user_data_tables(conn):
+    """Динамически находит все таблицы в схеме 'public' с колонкой 'conv_id'."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT table_name
+                FROM information_schema.columns
+                WHERE column_name = 'conv_id' AND table_schema = 'public';
+            """)
+            tables = [row[0] for row in cur.fetchall() if row[0] not in EXCLUDED_TABLES]
+            return tables
+    except psycopg2.Error as e:
+        logging.error(f"Не удалось получить список таблиц из БД: {e}")
+        return []
+
+def fetch_data_from_table(conn, table_name, conv_id):
+    """Извлекает все строки для данного conv_id из указанной таблицы."""
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            if table_name == 'dialogues':
+                query = "SELECT * FROM dialogues WHERE conv_id = %s ORDER BY created_at DESC LIMIT %s;"
+                cur.execute(query, (conv_id, DIALOGUES_LIMIT))
+            else:
+                query = f"SELECT * FROM {psycopg2.extensions.AsIs(table_name)} WHERE conv_id = %s;"
+                cur.execute(query, (conv_id,))
+
+            rows = [dict(row) for row in cur.fetchall()]
+            return rows
+    except psycopg2.Error as e:
+        logging.error(f"Ошибка при извлечении данных из таблицы '{table_name}': {e}")
+        return []
+
+def format_user_profile(rows):
+    if not rows: return ""
+    profile = rows[0]
+    lines = [f"--- КАРТОЧКА КЛИЕНТА ---"]
+    if profile.get('first_name') or profile.get('last_name'):
+        lines.append(f"Имя: {profile.get('first_name', '')} {profile.get('last_name', '')}".strip())
+    # Добавлены новые поля из VK
+    if profile.get('screen_name'):
+        lines.append(f"Профиль VK: https://vk.com/{profile['screen_name']}")
+    if profile.get('city'):
+        lines.append(f"Город: {profile['city']}")
+    if profile.get('birth_day') and profile.get('birth_month'):
+        lines.append(f"Дата рождения: {profile['birth_day']}.{profile['birth_month']}")
+    if profile.get('lead_qualification'):
+        lines.append(f"Квалификация лида: {profile['lead_qualification']}")
+    if profile.get('funnel_stage'):
+        lines.append(f"Этап воронки: {profile['funnel_stage']}")
+    if profile.get('client_level'):
+        lines.append(f"Уровень клиента: {', '.join(profile['client_level'])}")
+    if profile.get('learning_goals'):
+        lines.append(f"Цели обучения: {', '.join(profile['learning_goals'])}")
+    if profile.get('client_pains'):
+        lines.append(f"Боли клиента: {', '.join(profile['client_pains'])}")
+    if profile.get('dialogue_summary'):
+        lines.append(f"\nКраткое саммари диалога:\n{profile['dialogue_summary']}")
+    return "\n".join(lines)
+
+def format_client_purchases(rows):
+    if not rows: return ""
+    lines = ["--- ПОДТВЕРЖДЕННЫЕ ПОКУПКИ (из платежной системы) ---"]
+    for row in rows:
+        purchase_date = row.get('purchase_date').strftime('%Y-%m-%d') if row.get('purchase_date') else 'неизвестно'
+        lines.append(f"- Продукт: {row.get('product_name')}, Дата: {purchase_date}")
+    return "\n".join(lines)
+
+def format_purchased_products(rows):
+    if not rows: return ""
+    lines = ["--- УПОМЯНУТЫЕ ПОКУПКИ (со слов клиента) ---"]
+    for row in rows:
+        lines.append(f"- {row.get('product_name')}")
+    return "\n".join(lines)
+
+def format_dialogues(rows):
+    if not rows: return ""
+    lines = [f"--- ПОСЛЕДНЯЯ ИСТОРИЯ ДИАЛОГА (до {DIALOGUES_LIMIT} сообщений) ---"]
+    for row in reversed(rows):
+        role_map = {'user': 'Пользователь', 'bot': 'Модель', 'operator': 'Оператор'}
+        role = role_map.get(row.get('role', 'unknown'), 'Неизвестно')
+        message_text = row.get('message', '')
+        clean_message = re.sub(r'^\[\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2}\]\s*', '', message_text)
+        lines.append(f"{role}: {clean_message}")
+    return "\n".join(lines)
+
+def format_generic(rows, table_name):
+    if not rows: return ""
+    lines = [f'--- ДАННЫЕ ИЗ ТАБЛИЦЫ "{table_name}" ---']
+    for i, row in enumerate(rows):
+        row_str = json.dumps(row, ensure_ascii=False, indent=None, default=context_default_serializer)
+        lines.append(f"- Запись {i+1}: {row_str}")
+    return "\n".join(lines)
+
+def build_context_sync(vk_callback_data):
+    """
+    Синхронная версия context builder - перенесенная логика из context_builder.py
+    """
+    try:
+        # Извлекаем ID пользователя (from_id) из структуры VK
+        message_data = vk_callback_data.get("object", {}).get("message", {})
+        conv_id = message_data.get("from_id")
+        message_text = message_data.get("text", "")
+
+        if not conv_id:
+            # Проверяем старый формат на всякий случай
+            conv_id = vk_callback_data.get("conv_id")
+            if not conv_id:
+                raise ValueError("Не найден 'from_id' или 'conv_id' во входных данных.")
+
+        output_blocks = []
+
+        # Работа с базой данных
+        with get_main_db_connection() as conn:
+            # === ШАГ 1: ОБНОВИТЬ ПРОФИЛЬ ИЗ VK API ===
+            fetch_and_update_vk_profile(conn, conv_id)
+            
+            # === ШАГ 2: Связать покупки по email (side-effect) ===
+            update_conv_id_by_email(conn, conv_id, message_text)
+
+            # === ШАГ 3: Собрать все данные для контекста ===
+            tables_to_scan = find_user_data_tables(conn)
+
+            preferred_order = ['user_profiles', 'client_purchases', 'purchased_products', 'dialogues']
+            ordered_tables = [t for t in preferred_order if t in tables_to_scan]
+            ordered_tables.extend([t for t in tables_to_scan if t not in preferred_order])
+
+            formatters = {
+                'user_profiles': format_user_profile,
+                'client_purchases': format_client_purchases,
+                'purchased_products': format_purchased_products,
+                'dialogues': format_dialogues
+            }
+
+            for table in ordered_tables:
+                rows = fetch_data_from_table(conn, table, conv_id)
+                if rows:
+                    formatter_func = formatters.get(table, format_generic)
+                    if formatter_func == format_generic:
+                        formatted_block = formatter_func(rows, table)
+                    else:
+                        formatted_block = formatter_func(rows)
+
+                    if formatted_block:
+                        output_blocks.append(formatted_block)
+
+        # Формирование итогового результата
+        final_context = "\n\n".join(output_blocks)
+        return final_context
+
+    except Exception as e:
+        logging.error(f"FATAL ERROR in build_context_sync: {e}")
+        raise Exception(f"Context Builder Error: {e}")
+
+def call_context_builder_async(vk_callback_data):
+    """
+    Неблокирующий вызов context builder через ThreadPoolExecutor
+    """
+    try:
+        future = context_executor.submit(build_context_sync, vk_callback_data)
+        # Ждем результат, но это не блокирует других пользователей
+        # так как каждый пользователь обрабатывается в своем потоке
+        context_result = future.result(timeout=45)
+        logging.info(f"Context Builder успешно вернул контекст (длина: {len(context_result)} символов)")
+        return context_result
+    except Exception as e:
+        logging.error(f"Ошибка при асинхронном вызове Context Builder: {e}")
+        raise Exception(f"Context Builder Error: {e}")
+
+# === КОНЕЦ ПЕРЕНЕСЕННЫХ ФУНКЦИЙ ===
 
 if __name__ == "__main__":
     # Этот блок теперь используется только для локального запуска и отладки.

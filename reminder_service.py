@@ -62,6 +62,9 @@ API_TIMEOUT = 45
 # Интервал проверки напоминаний (в минутах)
 CHECK_INTERVAL_MINUTES = 5
 
+# Увеличенный таймаут для активации напоминаний
+ACTIVATION_TIMEOUT = 120  # 2 минуты
+
 # Настройки логирования
 LOG_FILE_NAME = "reminder_service.log"
 
@@ -291,8 +294,17 @@ PROMPT_ANALYZE_DIALOGUE = """
 ВАЖНЫЕ ПРАВИЛА:
 1. Ищи ТОЛЬКО договоренности, связанные с деятельностью школы (оплата, обучение, курсы, консультации).
 2. ИГНОРИРУЙ личные просьбы, не связанные со школой (напомнить вынести мусор, позвонить маме и т.д.), кроме личных просьб от администратора.
-3. Администратор имеет conv_id = {admin_conv_id}. Если администратор просит поставить напоминание для себя, используй его conv_id. Если он просит поставить напоминание для другого человека, он обычно указывает conv_id этого человека и понятную просьбу о постановке напоминания.
+3. КРИТИЧЕСКИ ВАЖНО: Администратор имеет conv_id = {admin_conv_id}. 
+   - Если администратор просит поставить напоминание для себя, используй его conv_id.
+   - Если он просит поставить напоминание для другого человека, он ЯВНО указывает conv_id этого человека.
+   - НЕ СОЗДАВАЙ напоминания по старым или неактуальным сообщениям администратора.
 4. Учитывай контекст всего диалога для правильной интерпретации.
+5. АНАЛИЗИРУЙ ТОЛЬКО ПОСЛЕДНИЕ 3-5 СООБЩЕНИЙ для поиска новых договоренностей.
+
+КРИТЕРИИ ДЛЯ АДМИНИСТРАТОРА:
+- Если администратор жалуется на ошибки бота или говорит о проблемах - НЕ создавай напоминания
+- Если администратор говорит "поставились напоминания", "бот запутался" - НЕ создавай новых напоминаний
+- Создавай напоминания ТОЛЬКО при ЯВНЫХ новых просьбах типа "поставь напоминание"
 
 ТИПЫ ДОГОВОРЕННОСТЕЙ:
 - Прямые просьбы: "Напомните мне завтра в 10:00 об оплате"
@@ -319,7 +331,7 @@ ID текущего диалога: {conv_id}
 --- ИНФОРМАЦИЯ О ПОЛЬЗОВАТЕЛЕ ---
 {user_info}
 
---- ПОСЛЕДНИЕ СООБЩЕНИЯ ДИАЛОГА ---
+--- ПОСЛЕДНИЕ СООБЩЕНИЯ ДИАЛОГА (АНАЛИЗИРУЙ ТОЛЬКО ПОСЛЕДНИЕ 3-5) ---
 {dialogue_messages}
 
 --- АКТИВНЫЕ НАПОМИНАНИЯ ДЛЯ ЭТОГО КЛИЕНТА ---
@@ -468,19 +480,34 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
     """
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
-            # Получаем последние сообщения диалога (больше контекста для лучшего анализа)
+            # Получаем последние сообщения диалога
+            # Для администратора берем только последние 5 сообщений для избежания анализа старых команд
+            message_limit = 5 if conv_id == ADMIN_CONV_ID else 20
+            
             cur.execute("""
                 SELECT role, message, created_at 
                 FROM dialogues 
                 WHERE conv_id = %s 
                 ORDER BY created_at DESC 
-                LIMIT 20
-            """, (conv_id,))
+                LIMIT %s
+            """, (conv_id, message_limit))
             messages = cur.fetchall()
             
             if not messages:
                 logging.info(f"Нет сообщений для анализа в диалоге {conv_id}")
                 return None
+            
+            # Для администратора дополнительно фильтруем только действительно свежие сообщения
+            if conv_id == ADMIN_CONV_ID:
+                # Берем только сообщения за последние 10 минут
+                cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=10)
+                messages = [msg for msg in messages if msg['created_at'] > cutoff_time]
+                
+                if not messages:
+                    logging.info(f"Нет свежих сообщений (за последние 10 минут) от администратора {conv_id}")
+                    return None
+                
+                logging.info(f"Анализ администратора: найдено {len(messages)} свежих сообщений за последние 10 минут")
             
             # Форматируем сообщения для промпта
             dialogue_text = []
@@ -595,32 +622,58 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             elif isinstance(result, dict):
                 reminders_to_process = result.get('reminders', [])
 
+            logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: AI вернул {len(reminders_to_process)} потенциальных напоминаний")
+
             if reminders_to_process:
                 processed_reminders = []
-                for reminder_data in reminders_to_process:
+                for i, reminder_data in enumerate(reminders_to_process):
+                    logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: Обрабатываю напоминание {i+1}: {reminder_data}")
+                    
                     if reminder_data.get('action') != 'none':
                         # Проверяем, не создаем ли мы дублирующее напоминание
                         if reminder_data.get('action') == 'create' and active_reminders:
                             new_summary = reminder_data.get('reminder_context_summary', '').lower()
                             is_duplicate = False
+                            
+                            logging.info(f"ПРОВЕРКА ДУБЛИКАТОВ {conv_id}: Новое напоминание '{new_summary}' против {len(active_reminders)} существующих")
+                            
                             for existing in active_reminders:
                                 existing_summary = existing['reminder_context_summary'].lower()
                                 # Простая проверка на схожесть (более 50% общих слов)
                                 new_words = set(new_summary.split())
                                 existing_words = set(existing_summary.split())
-                                if new_words and existing_words and len(new_words & existing_words) > len(new_words) * 0.5:
-                                    logging.info(f"Пропускаем создание дублирующего напоминания для {conv_id}: '{new_summary}'")
-                                    is_duplicate = True
-                                    break
+                                intersection = new_words & existing_words
+                                
+                                if new_words and existing_words:
+                                    similarity = len(intersection) / len(new_words)
+                                    logging.info(f"СРАВНЕНИЕ ДУБЛИКАТОВ {conv_id}: '{new_summary}' vs '{existing_summary}' - схожесть {similarity:.2f}")
+                                    
+                                    if similarity > 0.5:
+                                        logging.info(f"ДУБЛИКАТ НАЙДЕН {conv_id}: Пропускаем создание дублирующего напоминания '{new_summary}'")
+                                        is_duplicate = True
+                                        break
+                                        
                             if is_duplicate:
                                 continue
                         
+                        # Специальная проверка для администратора
+                        if conv_id == ADMIN_CONV_ID:
+                            summary = reminder_data.get('reminder_context_summary', '').lower()
+                            # Отклоняем напоминания по жалобам на ошибки
+                            if any(word in summary for word in ['ошибк', 'запутал', 'поставил', 'проблем', 'баг']):
+                                logging.info(f"ФИЛЬТР АДМИНИСТРАТОРА {conv_id}: Пропускаю напоминание по жалобе/ошибке: '{summary}'")
+                                continue
+                        
                         reminder_data['client_timezone'] = client_timezone
-                        logging.info(f"Выявлена договоренность в диалоге {conv_id}: {reminder_data}")
+                        logging.info(f"ПРИНЯТО НАПОМИНАНИЕ {conv_id}: {reminder_data}")
                         processed_reminders.append(reminder_data)
+                    else:
+                        logging.info(f"ПРОПУЩЕНО НАПОМИНАНИЕ {conv_id}: action='none'")
 
+                logging.info(f"ИТОГ АНАЛИЗА {conv_id}: Принято {len(processed_reminders)} из {len(reminders_to_process)} напоминаний")
                 return processed_reminders if processed_reminders else None
             
+            logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: Напоминания не найдены")
             return None
             
     except Exception as e:
@@ -732,20 +785,58 @@ def process_reminder_batch(reminders, model):
 
     activated_contexts = []
     activated_ids = []
+    cancelled_ids = []
 
+    # Этап 1: Проверяем каждое напоминание на уместность активации
     for reminder in reminders:
-        # Передаем другие напоминания из пачки в контекст для корректной проверки
-        other_reminders_in_batch = [r for r in reminders if r['id'] != reminder['id']]
-        result = process_single_reminder(reminder, model, activate_immediately=False, batch_context=other_reminders_in_batch)
-        if result and result.get('status') == 'should_activate':
-            activated_contexts.append(result['context'])
-            activated_ids.append(result['id'])
+        try:
+            # Передаем другие напоминания из пачки в контекст для корректной проверки
+            other_reminders_in_batch = [r for r in reminders if r['id'] != reminder['id']]
+            result = process_single_reminder(reminder, model, activate_immediately=False, batch_context=other_reminders_in_batch)
+            
+            if result and result.get('status') == 'should_activate':
+                activated_contexts.append(result['context'])
+                activated_ids.append(result['id'])
+            elif result and result.get('status') == 'cancelled':
+                cancelled_ids.append(result['id'])
+                
+        except Exception as e:
+            logging.error(f"ПАКЕТНАЯ ОБРАБОТКА для conv_id={conv_id}: Ошибка при проверке напоминания ID={reminder['id']}: {e}")
+            # При ошибке проверки не добавляем в список активации
+            continue
+
+    # Этап 2: Обновляем статусы отмененных напоминаний
+    if cancelled_ids:
+        conn = None
+        try:
+            conn = get_db_connection()
+            logging.info(f"ПАКЕТНАЯ ОБРАБОТКА для conv_id={conv_id}: Обновляю статусы отмененных напоминаний {cancelled_ids}")
+            # Статусы уже обновлены в process_single_reminder, просто логируем
+        except Exception as e:
+            logging.error(f"ПАКЕТНАЯ ОБРАБОТКА для conv_id={conv_id}: Ошибка при работе с отмененными напоминаниями: {e}")
+        finally:
+            if conn:
+                conn.close()
 
     if not activated_contexts:
         logging.info(f"В пачке для conv_id={conv_id} нет напоминаний для активации.")
         return
 
-    # Если есть что активировать, формируем одно сообщение
+    # Этап 3: Активируем напоминания асинхронно
+    logging.info(f"ПАКЕТНАЯ АКТИВАЦИЯ для conv_id={conv_id}: Запускаю асинхронную активацию для {len(activated_ids)} напоминаний")
+    
+    # Используем отдельный поток для активации, чтобы не блокировать планировщик
+    activation_thread = threading.Thread(
+        target=_activate_reminders_async,
+        args=(conv_id, activated_contexts, activated_ids),
+        daemon=True
+    )
+    activation_thread.start()
+
+def _activate_reminders_async(conv_id, activated_contexts, activated_ids):
+    """
+    Асинхронная активация напоминаний в отдельном потоке.
+    """
     conn = None
     try:
         conn = get_db_connection()
@@ -755,29 +846,59 @@ def process_reminder_batch(reminders, model):
         activate_url = f"http://127.0.0.1:{port}/activate_reminder"
         payload = {"conv_id": conv_id, "reminder_context_summary": combined_context}
         
-        logging.info(f"ПАКЕТНАЯ АКТИВАЦИЯ для conv_id={conv_id} (ID: {activated_ids}): Отправляю запрос на {activate_url}")
-        response = requests.post(activate_url, json=payload, timeout=60)
+        logging.info(f"АСИНХРОННАЯ АКТИВАЦИЯ для conv_id={conv_id} (ID: {activated_ids}): Отправляю запрос на {activate_url}")
+        
+        # Увеличенный таймаут для избежания worker timeout
+        response = requests.post(activate_url, json=payload, timeout=ACTIVATION_TIMEOUT)
         response.raise_for_status()
         
         response_text = response.text
-        logging.info(f"ПАКЕТНАЯ АКТИВАЦИЯ для conv_id={conv_id}: Получен ответ. Статус: {response.status_code}, Тело: '{response_text}'")
+        logging.info(f"АСИНХРОННАЯ АКТИВАЦИЯ для conv_id={conv_id}: Получен ответ. Статус: {response.status_code}, Тело: '{response_text}'")
 
         with conn.cursor() as cur:
-            logging.info(f"ПАКЕТНАЯ АКТИВАЦИЯ для conv_id={conv_id} (ID: {activated_ids}): Обновляю статусы в БД на 'done'.")
+            logging.info(f"АСИНХРОННАЯ АКТИВАЦИЯ для conv_id={conv_id} (ID: {activated_ids}): Обновляю статусы в БД на 'done'.")
             cur.execute("UPDATE reminders SET status = 'done' WHERE id = ANY(%s::int[])", (activated_ids,))
             conn.commit()
-            logging.info(f"ПАКЕТНАЯ АКТИВАЦИЯ для conv_id={conv_id}: Успешно обновлены статусы для {len(activated_ids)} напоминаний.")
+            logging.info(f"АСИНХРОННАЯ АКТИВАЦИЯ для conv_id={conv_id}: Успешно обновлены статусы для {len(activated_ids)} напоминаний.")
+            
+    except requests.exceptions.Timeout as e:
+        logging.error(f"АСИНХРОННАЯ АКТИВАЦИЯ для conv_id={conv_id}: ТАЙМАУТ. Напоминания {activated_ids} будут возвращены в 'active'. Ошибка: {e}")
+        _revert_reminder_statuses(activated_ids, "timeout")
+        
+    except requests.exceptions.RequestException as e:
+        logging.error(f"АСИНХРОННАЯ АКТИВАЦИЯ для conv_id={conv_id}: ОШИБКА HTTP. Напоминания {activated_ids} будут возвращены в 'active'. Ошибка: {e}")
+        _revert_reminder_statuses(activated_ids, f"http_error: {e}")
+        
     except Exception as e:
-        logging.error(f"ПАКЕТНАЯ АКТИВАЦИЯ для conv_id={conv_id}: ОШИБКА. Статусы напоминаний {activated_ids} будут возвращены в 'active'. Ошибка: {e}", exc_info=True)
+        logging.error(f"АСИНХРОННАЯ АКТИВАЦИЯ для conv_id={conv_id}: КРИТИЧЕСКАЯ ОШИБКА. Напоминания {activated_ids} будут возвращены в 'active'. Ошибка: {e}", exc_info=True)
+        _revert_reminder_statuses(activated_ids, f"critical_error: {e}")
+        
+    finally:
         if conn:
-            conn.rollback()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("UPDATE reminders SET status = 'active' WHERE id = ANY(%s::int[])", (activated_ids,))
-                    conn.commit()
-                logging.info(f"Статус напоминаний {activated_ids} возвращен в 'active' из-за ошибки отправки.")
-            except Exception as e_revert:
-                logging.error(f"Не удалось вернуть статус напоминаниям {activated_ids}: {e_revert}")
+            conn.close()
+
+def _revert_reminder_statuses(reminder_ids, reason):
+    """
+    Возвращает статусы напоминаний обратно в 'active' при ошибке активации.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE reminders 
+                SET status = 'active', 
+                    cancellation_reason = %s 
+                WHERE id = ANY(%s::int[]) AND status = 'in_progress'
+                """,
+                (f"Активация не удалась: {reason}", reminder_ids)
+            )
+            affected = cur.rowcount
+            conn.commit()
+            logging.info(f"Статус {affected} напоминаний {reminder_ids} возвращен в 'active' из-за: {reason}")
+    except Exception as e_revert:
+        logging.error(f"Не удалось вернуть статус напоминаниям {reminder_ids}: {e_revert}")
     finally:
         if conn:
             conn.close()
@@ -953,6 +1074,7 @@ def process_single_reminder(reminder, model, activate_immediately=True, batch_co
                             cancellation_reason = %s
                         WHERE id = %s
                     """, (reason, reminder['id']))
+                    return_status = 'cancelled'
                     
                 elif suggested_action == 'postpone':
                     postpone_to_str = verification.get('postpone_to')
@@ -961,6 +1083,7 @@ def process_single_reminder(reminder, model, activate_immediately=True, batch_co
                         cur.execute("""
                             UPDATE reminders SET status = 'cancelled_by_reminder', cancellation_reason = %s WHERE id = %s
                         """, (f"Ошибка переноса: не указано время. Исходная причина: {reason}", reminder['id']))
+                        return_status = 'cancelled'
                     else:
                         new_datetime = parse_datetime_with_timezone(
                             postpone_to_str,
@@ -976,15 +1099,17 @@ def process_single_reminder(reminder, model, activate_immediately=True, batch_co
                         """, (new_datetime, f"Перенесено: {reason}", reminder['id']))
                         
                         logging.info(f"ПЕРЕНОС ID={reminder['id']}: Напоминание перенесено на {new_datetime}")
+                        return_status = 'postponed'
                 else:
                     logging.warning(f"НЕИЗВЕСТНОЕ ДЕЙСТВИЕ ID={reminder['id']}: AI предложил '{suggested_action}'. Напоминание будет отменено для безопасности.")
                     cur.execute("""
                         UPDATE reminders SET status = 'cancelled_by_reminder', cancellation_reason = %s WHERE id = %s
                     """, (f"Неизвестное действие от AI: {suggested_action}. Причина: {reason}", reminder['id']))
+                    return_status = 'cancelled'
 
             conn.commit()
             logging.info(f"ID={reminder['id']}: Транзакция успешно завершена.")
-            return {'status': 'processed', 'id': reminder['id']} # Возвращаем статус для пакетной обработки
+            return {'status': return_status, 'id': reminder['id']} # Возвращаем статус для пакетной обработки
             
     except Exception as e:
         logging.error(f"КРИТИЧЕСКАЯ ОШИБКА ID={reminder['id']}: Произошла непредвиденная ошибка. Откатываю транзакцию. Статус будет возвращен в 'active'. Ошибка: {e}", exc_info=True)

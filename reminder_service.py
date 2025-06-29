@@ -761,18 +761,20 @@ def process_reminder_batch(reminders, model):
         activate_url = f"http://127.0.0.1:{port}/activate_reminder"
         payload = {"conv_id": conv_id, "reminder_context_summary": combined_context}
         
-        logging.info(f"Вызов внутреннего эндпоинта для пачки: {activate_url} с payload: {payload}")
+        logging.info(f"ПАКЕТНАЯ АКТИВАЦИЯ для conv_id={conv_id} (ID: {activated_ids}): Отправляю запрос на {activate_url}")
         response = requests.post(activate_url, json=payload, timeout=30)
         response.raise_for_status()
         
-        logging.info(f"Эндпоинт активации успешно вызван для пачки напоминаний conv_id={conv_id}. Ответ: {response.json()}")
+        response_text = response.text
+        logging.info(f"ПАКЕТНАЯ АКТИВАЦИЯ для conv_id={conv_id}: Получен ответ. Статус: {response.status_code}, Тело: '{response_text}'")
 
         with conn.cursor() as cur:
+            logging.info(f"ПАКЕТНАЯ АКТИВАЦИЯ для conv_id={conv_id} (ID: {activated_ids}): Обновляю статусы в БД на 'done'.")
             cur.execute("UPDATE reminders SET status = 'done' WHERE id = ANY(%s::int[])", (activated_ids,))
             conn.commit()
-            logging.info(f"Напоминания {activated_ids} помечены как 'done'.")
+            logging.info(f"ПАКЕТНАЯ АКТИВАЦИЯ для conv_id={conv_id}: Успешно обновлены статусы для {len(activated_ids)} напоминаний.")
     except Exception as e:
-        logging.error(f"Ошибка при пакетной активации для conv_id={conv_id}: {e}", exc_info=True)
+        logging.error(f"ПАКЕТНАЯ АКТИВАЦИЯ для conv_id={conv_id}: ОШИБКА. Статусы напоминаний {activated_ids} будут возвращены в 'active'. Ошибка: {e}", exc_info=True)
         if conn:
             conn.rollback()
             try:
@@ -907,15 +909,13 @@ def process_single_reminder(reminder, model, activate_immediately=True, batch_co
         
         with conn.cursor() as cur:
             if verification['should_activate']:
+                logging.info(f"АКТИВАЦИЯ ID={reminder['id']}: Напоминание прошло проверку. Начинаю процесс активации.")
                 # Для пакетной обработки просто возвращаем результат
                 if not activate_immediately:
-                    logging.info(f"Напоминание ID={reminder['id']} готово к пакетной активации.")
+                    logging.info(f"АКТИВАЦИЯ ID={reminder['id']}: Готово к пакетной активации.")
                     return {'status': 'should_activate', 'context': reminder['reminder_context_summary'], 'id': reminder['id']}
                 
                 # Активируем напоминание
-                logging.info(f"Напоминание ID={reminder['id']} прошло проверку и будет активировано")
-                
-                # Вызываем эндпоинт в main.py для активации ответа
                 try:
                     # Формируем внутренний URL для вызова внутри того же контейнера
                     port = os.environ.get("PORT", 5000)
@@ -925,21 +925,23 @@ def process_single_reminder(reminder, model, activate_immediately=True, batch_co
                         "conv_id": reminder['conv_id'],
                         "reminder_context_summary": reminder['reminder_context_summary']
                     }
-                    logging.info(f"Вызов внутреннего эндпоинта активации: {activate_url} с payload: {payload}")
+                    logging.info(f"АКТИВАЦИЯ ID={reminder['id']}: Отправляю запрос на {activate_url}")
                     
                     response = requests.post(activate_url, json=payload, timeout=30)
                     response.raise_for_status()
                     
-                    logging.info(f"Эндпоинт активации успешно вызван для напоминания ID={reminder['id']}. Ответ: {response.json()}")
+                    response_text = response.text
+                    logging.info(f"АКТИВАЦИЯ ID={reminder['id']}: Получен ответ. Статус: {response.status_code}, Тело: '{response_text}'")
                     
                     # Помечаем как выполненное
+                    logging.info(f"АКТИВАЦИЯ ID={reminder['id']}: Обновляю статус в БД на 'done'.")
                     cur.execute(
                         "UPDATE reminders SET status = 'done' WHERE id = %s",
                         (reminder['id'],)
                     )
 
                 except requests.exceptions.RequestException as e:
-                    logging.error(f"Ошибка при вызове эндпоинта активации для напоминания ID={reminder['id']}: {e}")
+                    logging.error(f"АКТИВАЦИЯ ID={reminder['id']}: ОШИБКА. Не удалось вызвать эндпоинт активации. Напоминание НЕ будет активировано в этот раз. Ошибка: {e}")
                     # При ошибке напоминание останется в статусе 'in_progress', 
                     # и блок except выше вернет его в 'active'
                     raise  # Передаем исключение выше, чтобы сработал rollback и возврат статуса
@@ -947,6 +949,7 @@ def process_single_reminder(reminder, model, activate_immediately=True, batch_co
             else:
                 # Отменяем или переносим напоминание
                 if verification['suggested_action'] == 'cancel':
+                    logging.info(f"ОТМЕНА ID={reminder['id']}: Обновляю статус на 'cancelled_by_reminder'. Причина: {verification['reason']}")
                     cur.execute("""
                         UPDATE reminders 
                         SET status = 'cancelled_by_reminder', 
@@ -954,29 +957,14 @@ def process_single_reminder(reminder, model, activate_immediately=True, batch_co
                         WHERE id = %s
                     """, (verification['reason'], reminder['id']))
                     
-                    logging.info(f"Напоминание ID={reminder['id']} отменено: {verification['reason']}")
-                    
-                elif verification['suggested_action'] == 'postpone':
-                    new_datetime = parse_datetime_with_timezone(
-                        verification['postpone_to'],
-                        reminder.get('client_timezone') or 'Europe/Moscow'
-                    )
-                    
-                    cur.execute("""
-                        UPDATE reminders 
-                        SET reminder_datetime = %s, 
-                            status = 'active',
-                            cancellation_reason = %s
-                        WHERE id = %s
-                    """, (new_datetime, f"Перенесено: {verification['reason']}", reminder['id']))
-                    
-                    logging.info(f"Напоминание ID={reminder['id']} перенесено на {new_datetime}")
+                    logging.info(f"Напоминание ID={reminder['id']} перенесено на {verification['postpone_to']}")
             
             conn.commit()
+            logging.info(f"ID={reminder['id']}: Транзакция успешно завершена.")
             return {'status': 'processed', 'id': reminder['id']} # Возвращаем статус для пакетной обработки
             
     except Exception as e:
-        logging.error(f"Ошибка при обработке напоминания ID={reminder['id']}: {e}", exc_info=True)
+        logging.error(f"КРИТИЧЕСКАЯ ОШИБКА ID={reminder['id']}: Произошла непредвиденная ошибка. Откатываю транзакцию. Статус будет возвращен в 'active'. Ошибка: {e}", exc_info=True)
         if conn:
             conn.rollback()
             # Возвращаем статус обратно в active при ошибке

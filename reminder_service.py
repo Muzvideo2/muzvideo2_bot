@@ -948,17 +948,46 @@ def process_single_reminder(reminder, model, activate_immediately=True, batch_co
                 
             else:
                 # Отменяем или переносим напоминание
-                if verification['suggested_action'] == 'cancel':
-                    logging.info(f"ОТМЕНА ID={reminder['id']}: Обновляю статус на 'cancelled_by_reminder'. Причина: {verification['reason']}")
+                suggested_action = verification.get('suggested_action')
+                reason = verification.get('reason', 'Причина не указана AI')
+
+                if suggested_action == 'cancel':
+                    logging.info(f"ОТМЕНА ID={reminder['id']}: Обновляю статус на 'cancelled_by_reminder'. Причина: {reason}")
                     cur.execute("""
                         UPDATE reminders 
                         SET status = 'cancelled_by_reminder', 
                             cancellation_reason = %s
                         WHERE id = %s
-                    """, (verification['reason'], reminder['id']))
+                    """, (reason, reminder['id']))
                     
-                    logging.info(f"Напоминание ID={reminder['id']} перенесено на {verification['postpone_to']}")
-            
+                elif suggested_action == 'postpone':
+                    postpone_to_str = verification.get('postpone_to')
+                    if not postpone_to_str:
+                        logging.warning(f"ПЕРЕНОС ID={reminder['id']}: AI предложил перенос, но не указал время. Напоминание будет отменено.")
+                        cur.execute("""
+                            UPDATE reminders SET status = 'cancelled_by_reminder', cancellation_reason = %s WHERE id = %s
+                        """, (f"Ошибка переноса: не указано время. Исходная причина: {reason}", reminder['id']))
+                    else:
+                        new_datetime = parse_datetime_with_timezone(
+                            postpone_to_str,
+                            reminder.get('client_timezone') or 'Europe/Moscow'
+                        )
+                        
+                        cur.execute("""
+                            UPDATE reminders 
+                            SET reminder_datetime = %s, 
+                                status = 'active',
+                                cancellation_reason = %s
+                            WHERE id = %s
+                        """, (new_datetime, f"Перенесено: {reason}", reminder['id']))
+                        
+                        logging.info(f"ПЕРЕНОС ID={reminder['id']}: Напоминание перенесено на {new_datetime}")
+                else:
+                    logging.warning(f"НЕИЗВЕСТНОЕ ДЕЙСТВИЕ ID={reminder['id']}: AI предложил '{suggested_action}'. Напоминание будет отменено для безопасности.")
+                    cur.execute("""
+                        UPDATE reminders SET status = 'cancelled_by_reminder', cancellation_reason = %s WHERE id = %s
+                    """, (f"Неизвестное действие от AI: {suggested_action}. Причина: {reason}", reminder['id']))
+
             conn.commit()
             logging.info(f"ID={reminder['id']}: Транзакция успешно завершена.")
             return {'status': 'processed', 'id': reminder['id']} # Возвращаем статус для пакетной обработки

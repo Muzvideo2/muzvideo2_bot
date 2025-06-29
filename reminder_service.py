@@ -410,13 +410,13 @@ def get_db_connection():
 def call_gemini_api(model, prompt, expect_json=True):
     """Вызывает модель Gemini через Vertex AI SDK."""
     try:
-        logging.info(f"Отправляем запрос в Gemini. Промпт (первые 200 символов): {prompt[:200]}...")
+        # logging.info(f"Отправляем запрос в Gemini. Промпт (первые 200 символов): {prompt[:200]}...")
         
         response = model.generate_content(prompt)
         raw_response = response.text
         
-        logging.info(f"Получен ответ от Gemini (длина: {len(raw_response)} символов)")
-        logging.info(f"Сырой ответ от Gemini: {raw_response}")
+        # logging.info(f"Получен ответ от Gemini (длина: {len(raw_response)} символов)")
+        # logging.info(f"Сырой ответ от Gemini: {raw_response}")
         
         if expect_json:
             # Улучшенная логика для извлечения JSON из ответа
@@ -440,7 +440,7 @@ def call_gemini_api(model, prompt, expect_json=True):
             json_str = json_str.strip()
 
             parsed_response = json.loads(json_str)
-            logging.info(f"JSON успешно распарсен: {parsed_response}")
+            # logging.info(f"JSON успешно распарсен: {parsed_response}")
             return parsed_response
         else:
             return raw_response.strip()
@@ -479,6 +479,7 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
     Анализирует последние сообщения диалога для выявления договоренностей о напоминании.
     """
     try:
+        logging.info(f"Начат анализ на необходимость установки напоминаний для conv_id={conv_id}")
         with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
             # Получаем последние сообщения диалога
             # Для администратора берем только последние 5 сообщений для избежания анализа старых команд
@@ -494,7 +495,7 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             messages = cur.fetchall()
             
             if not messages:
-                logging.info(f"Нет сообщений для анализа в диалоге {conv_id}")
+                # logging.info(f"Нет сообщений для анализа в диалоге {conv_id}")
                 return None
             
             # Для администратора дополнительно фильтруем только действительно свежие сообщения
@@ -516,10 +517,10 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                 messages = filtered_messages
                 
                 if not messages:
-                    logging.info(f"Нет свежих сообщений (за последние 10 минут) от администратора {conv_id}")
+                    # logging.info(f"Нет свежих сообщений (за последние 10 минут) от администратора {conv_id}")
                     return None
                 
-                logging.info(f"Анализ администратора: найдено {len(messages)} свежих сообщений за последние 10 минут")
+                # logging.info(f"Анализ администратора: найдено {len(messages)} свежих сообщений за последние 10 минут")
             
             # Форматируем сообщения для промпта
             dialogue_text = []
@@ -574,14 +575,14 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                 user_info += f", часовой пояс={client_timezone}"
                 if conv_id == ADMIN_CONV_ID:
                     user_info += " (АДМИНИСТРАТОР)"
-                    logging.info(f"=== АНАЛИЗ СООБЩЕНИЙ АДМИНИСТРАТОРА ===")
-                    logging.info(f"Обрабатываем сообщения от администратора (conv_id={ADMIN_CONV_ID})")
-                    # Логируем последнее сообщение от пользователя детально
-                    user_messages = [msg for msg in messages if msg['role'] == 'user']
-                    if user_messages:
-                        last_user_msg = user_messages[0]  # Самое последнее
-                        logging.info(f"Последнее сообщение пользователя: '{last_user_msg['message']}'")
-                    logging.info("=== КОНЕЦ АНАЛИЗА АДМИНИСТРАТОРА ===")
+                    # logging.info(f"=== АНАЛИЗ СООБЩЕНИЙ АДМИНИСТРАТОРА ===")
+                    # logging.info(f"Обрабатываем сообщения от администратора (conv_id={ADMIN_CONV_ID})")
+                    # # Логируем последнее сообщение от пользователя детально
+                    # user_messages = [msg for msg in messages if msg['role'] == 'user']
+                    # if user_messages:
+                    #     last_user_msg = user_messages[0]  # Самое последнее
+                    #     logging.info(f"Последнее сообщение пользователя: '{last_user_msg['message']}'")
+                    # logging.info("=== КОНЕЦ АНАЛИЗА АДМИНИСТРАТОРА ===")
             else:
                 user_info = f"conv_id={conv_id}, часовой пояс={client_timezone}"
             
@@ -644,12 +645,12 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             elif isinstance(result, dict):
                 reminders_to_process = result.get('reminders', [])
 
-            logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: AI вернул {len(reminders_to_process)} потенциальных напоминаний")
+            # logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: AI вернул {len(reminders_to_process)} потенциальных напоминаний")
 
             if reminders_to_process:
                 processed_reminders = []
                 for i, reminder_data in enumerate(reminders_to_process):
-                    logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: Обрабатываю напоминание {i+1}: {reminder_data}")
+                    # logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: Обрабатываю напоминание {i+1}: {reminder_data}")
                     
                     if reminder_data.get('action') != 'none':
                         # Проверяем, не создаем ли мы дублирующее напоминание
@@ -657,7 +658,7 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                             new_summary = reminder_data.get('reminder_context_summary', '').lower()
                             is_duplicate = False
                             
-                            logging.info(f"ПРОВЕРКА ДУБЛИКАТОВ {conv_id}: Новое напоминание '{new_summary}' против {len(active_reminders)} существующих")
+                            # logging.info(f"ПРОВЕРКА ДУБЛИКАТОВ {conv_id}: Новое напоминание '{new_summary}' против {len(active_reminders)} существующих")
                             
                             for existing in active_reminders:
                                 existing_summary = existing['reminder_context_summary'].lower()
@@ -668,10 +669,10 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                                 
                                 if new_words and existing_words:
                                     similarity = len(intersection) / len(new_words)
-                                    logging.info(f"СРАВНЕНИЕ ДУБЛИКАТОВ {conv_id}: '{new_summary}' vs '{existing_summary}' - схожесть {similarity:.2f}")
+                                    # logging.info(f"СРАВНЕНИЕ ДУБЛИКАТОВ {conv_id}: '{new_summary}' vs '{existing_summary}' - схожесть {similarity:.2f}")
                                     
                                     if similarity > 0.5:
-                                        logging.info(f"ДУБЛИКАТ НАЙДЕН {conv_id}: Пропускаем создание дублирующего напоминания '{new_summary}'")
+                                        # logging.info(f"ДУБЛИКАТ НАЙДЕН {conv_id}: Пропускаем создание дублирующего напоминания '{new_summary}'")
                                         is_duplicate = True
                                         break
                                         
@@ -683,19 +684,21 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                             summary = reminder_data.get('reminder_context_summary', '').lower()
                             # Отклоняем напоминания по жалобам на ошибки
                             if any(word in summary for word in ['ошибк', 'запутал', 'поставил', 'проблем', 'баг']):
-                                logging.info(f"ФИЛЬТР АДМИНИСТРАТОРА {conv_id}: Пропускаю напоминание по жалобе/ошибке: '{summary}'")
+                                # logging.info(f"ФИЛЬТР АДМИНИСТРАТОРА {conv_id}: Пропускаю напоминание по жалобе/ошибке: '{summary}'")
                                 continue
                         
                         reminder_data['client_timezone'] = client_timezone
-                        logging.info(f"ПРИНЯТО НАПОМИНАНИЕ {conv_id}: {reminder_data}")
+                        # logging.info(f"ПРИНЯТО НАПОМИНАНИЕ {conv_id}: {reminder_data}")
                         processed_reminders.append(reminder_data)
                     else:
-                        logging.info(f"ПРОПУЩЕНО НАПОМИНАНИЕ {conv_id}: action='none'")
+                        # logging.info(f"ПРОПУЩЕНО НАПОМИНАНИЕ {conv_id}: action='none'")
+                        pass
 
-                logging.info(f"ИТОГ АНАЛИЗА {conv_id}: Принято {len(processed_reminders)} из {len(reminders_to_process)} напоминаний")
+                if processed_reminders:
+                    logging.info(f"ИТОГ АНАЛИЗА {conv_id}: Принято {len(processed_reminders)} из {len(reminders_to_process)} напоминаний")
                 return processed_reminders if processed_reminders else None
             
-            logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: Напоминания не найдены")
+            # logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: Напоминания не найдены")
             return None
             
     except Exception as e:
@@ -758,7 +761,8 @@ def create_or_update_reminder(conn, conv_id, reminder_data, created_by_conv_id=N
                 
                 affected = cur.rowcount
                 conn.commit()
-                logging.info(f"Отменено {affected} напоминаний для conv_id={target_conv_id}")
+                if affected > 0:
+                    logging.info(f"Отменено {affected} напоминаний для conv_id={target_conv_id}")
                 
             elif action == 'update':
                 # Обновляем существующее напоминание

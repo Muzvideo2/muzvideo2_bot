@@ -612,7 +612,7 @@ def clear_operator_timer(conv_id_for_timer):
 
 
 def get_last_n_messages(conv_id, n=2):
-    """Извлекает последние n сообщений из диалога."""
+    """Извлекает последние n сообщений из диалога. Убирает таймштампы из сообщений."""
     conn = None
     messages = []
     try:
@@ -629,7 +629,11 @@ def get_last_n_messages(conv_id, n=2):
                 (conv_id, n)
             )
             rows = cur.fetchall()
-            messages = list(reversed([{"role": row["role"], "message": row["message"]} for row in rows]))
+            # Убираем временные метки из сообщений для чистоты
+            messages = list(reversed([
+                {"role": row["role"], "message": re.sub(r'^\\[.*?\\]\\s*', '', row["message"])}
+                for row in rows
+            ]))
     except psycopg2.Error as e:
         logging.error(f"Ошибка БД при получении последних сообщений для conv_id {conv_id}: {e}")
     finally:
@@ -637,13 +641,11 @@ def get_last_n_messages(conv_id, n=2):
             conn.close()
     return messages
 
-
 def find_relevant_titles_with_gemini(dialog_snippet, model=None):
     """
     Анализирует фрагмент диалога (последние сообщения) и находит наиболее релевантные заголовки
     в базе знаний с помощью Gemini.
     """
-    # Используем быструю модель для поиска, если основная модель не передана
     search_model_to_use = app.search_model if model is None else model
     
     if not isinstance(search_model_to_use, GenerativeModel):
@@ -654,52 +656,69 @@ def find_relevant_titles_with_gemini(dialog_snippet, model=None):
         logging.warning("В find_relevant_titles_with_gemini был передан пустой фрагмент диалога.")
         return []
 
-    formatted_dialog = "\n".join([f"- {msg['role'].capitalize()}: {msg['message']}" for msg in dialog_snippet])
+    formatted_dialog = "\\n".join([f"- {msg['role'].capitalize()}: {msg['message']}" for msg in dialog_snippet])
 
     all_titles = list(knowledge_base.keys())
     if not all_titles:
         logging.warning("База знаний пуста или не загружена. Поиск релевантных заголовков невозможен.")
         return []
+    
+    all_titles_text = "\\n".join(f"- {title}" for title in all_titles)
 
     prompt = f"""
-Ты — сверхточный ассистент-классификатор. Твоя задача — проанализировать диалог и определить, соответствуют ли ему какие-либо темы из предоставленного списка.
+Ты — ассистент, твоя задача — найти наиболее релевантные заголовки из базы знаний на основе диалога. Эти заголовки (с полным текстом подсказки) будут использоваться для подсказки ИИ-бота при ответе клиенту.
 
-Диалог:
+Проанализируй последний вопрос клиента в контексте диалога.
+
+**Диалог:**
 {formatted_dialog}
 
-Список доступных тем:
+**Вот список доступных заголовков из базы знаний:**
 ---
-{', '.join(all_titles)}
+{all_titles_text}
 ---
 
-Проанализируй диалог и следуй этим правилам НЕУКОСНИТЕЛЬНО:
+**Твоя задача:**
+1.  Внимательно изучи **ПОСЛЕДНЕЕ** сообщение от клиента. Это может быть вопрос или реакция на реплику бота. Важно оценить смысл реплики пользователя в контексте всего диалога.
+2.  Определи, какие из **ДОСТУПНЫХ** заголовков могут содержать подсказку для работы ИИ-бота с клиентом, учитывая контекст диалога.
+3.  Твой ответ должен быть **СТРОГО** JSON-объектом.
+4.  Если ты находишь релевантные заголовки, верни их в виде списка в поле "titles". Например: {{"titles": ["Заголовок 1", "Заголовок 2"]}}.
+5.  **КРИТИЧЕСКИ ВАЖНО:** Если ты не находишь **НИ ОДНОГО** подходящего заголовка из списка, или если диалог не содержит конкретного вопроса, верни пустой список в JSON. Вот так: {{"titles": []}}. Не выдумывай заголовки, которых нет в списке.
 
-1.  **ПРАВИЛО №1 (САМОЕ ВАЖНОЕ):** Если НИ ОДНА из тем в списке не соответствует теме диалога, верни ПУСТОЙ ОТВЕТ. Не пытайся угадать или выбрать наименее плохой вариант. Это критически важно.
-
-2.  **ПРАВИЛО №2:** Возвращай ТОЛЬКО темы ИЗ ПРЕДОСТАВЛЕННОГО СПИСКА. Не изменяй их формулировку и не придумывай новые.
-
-3.  **ПРАВИЛО №3:** Если нашлись релевантные темы, верни до 3-х самых подходящих. Каждую тему на новой строке. Без номеров, без пояснений, без каких-либо других символов.
-    """.strip()
-
+**Ответ (только JSON):**
+"""
     try:
         logging.info(f"Запрос к {SEARCH_MODEL_NAME} для поиска релевантных заголовков по диалогу: {formatted_dialog}")
         response = search_model_to_use.generate_content(prompt)
-
-        if not response.text.strip():
-            logging.info("Модель поиска вернула пустой ответ, релевантных тем не найдено.")
-            return []
         
-        relevant_titles = [title.strip().replace("*", "").replace("- ", "") for title in response.text.strip().split('\n') if title.strip()]
+        logging.debug(f"Получен сырой ответ от модели поиска: {response.text}")
+        
+        # Улучшенный парсинг JSON из ответа модели
+        match = re.search(r'\\{.*\\}', response.text, re.DOTALL)
+        if not match:
+            logging.warning(f"Модель поиска вернула невалидный JSON (не найдена структура {{}}). Ответ: {response.text}")
+            return []
+            
+        json_response = json.loads(match.group(0))
+        relevant_titles = json_response.get("titles", [])
+
+        if not isinstance(relevant_titles, list):
+            logging.warning(f"Поле 'titles' в JSON-ответе не является списком. Ответ: {response.text}")
+            return []
+
         logging.info(f"{SEARCH_MODEL_NAME} определил следующие релевантные заголовки: {relevant_titles}")
         
         final_titles = [title for title in relevant_titles if title in all_titles]
         if len(final_titles) != len(relevant_titles):
-            logging.warning("Модель поиска вернула заголовки, которых нет в базе знаний. Они были отфильтрованы.")
+            logging.warning(f"Модель поиска вернула заголовки, которых нет в базе знаний. Они были отфильтрованы. Исходные: {relevant_titles}, Финальные: {final_titles}")
         
         return final_titles
 
+    except json.JSONDecodeError:
+        logging.error(f"Ошибка декодирования JSON ответа от модели поиска. Ответ: {response.text}")
+        return []
     except Exception as e:
-        logging.error(f"Ошибка при взаимодействии с {SEARCH_MODEL_NAME} для поиска релевантных заголовков: {e}")
+        logging.error(f"Ошибка при взаимодействии с {SEARCH_MODEL_NAME} для поиска релевантных заголовков: {e}", exc_info=True)
         return []
 
 
@@ -1001,14 +1020,26 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
 
         # Если это вызов от напоминания, добавляем контекст в начало промпта
         if reminder_context:
-            context_from_builder = f"[СИСТЕМНОЕ УВЕДОМЛЕНИЕ] Сработало напоминание. Причина: '{reminder_context}'. Проанализируй весь диалог и реши, уместно ли сейчас возобновлять общение. Если да — напиши релевантное сообщение клиенту. Если нет — верни ПУСТУЮ СТРОКУ.\n\n{context_from_builder}"
+            context_from_builder = f"[СИСТЕМНОЕ УВЕДОМЛЕНИЕ] Сработало напоминание. Причина: '{reminder_context}'. Проанализируй весь диалог и реши, уместно ли сейчас возобновлять общение. Если да — напиши релевантное сообщение клиенту. Если нет — верни ПУСТУЮ СТРОКУ.\\n\\n{context_from_builder}"
 
     except Exception as e:
         logging.error(f"Ошибка вызова Context Builder для conv_id {conv_id_to_respond}: {e}")
         logging.error(f"Обработка запроса для conv_id {conv_id_to_respond} прекращена из-за ошибки Context Builder")
         return
 
-    dialog_snippet = get_last_n_messages(conv_id_to_respond, n=2)
+    # 1. Получаем последнее сообщение из БД (это должен быть ответ бота)
+    last_messages_from_db = get_last_n_messages(conv_id_to_respond, n=1)
+    
+    # 2. Формируем новый `dialog_snippet`
+    dialog_snippet = []
+    if last_messages_from_db:
+        dialog_snippet.extend(last_messages_from_db) # Добавляем сообщение бота
+    
+    # Добавляем текущее сообщение пользователя, которого еще нет в БД
+    dialog_snippet.append({"role": "user", "message": combined_user_text})
+
+    logging.info(f"Сформирован dialog_snippet для поиска заголовков: {dialog_snippet}")
+
     relevant_titles_from_kb = find_relevant_titles_with_gemini(dialog_snippet)
 
     bot_response_text = generate_response(
@@ -1052,14 +1083,14 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
         try:
             with open(log_file_path_for_processed, "a", encoding="utf-8") as log_f:
                 if not is_reminder_call:
-                    log_f.write(f"[{timestamp_in_message_text}] {user_display_name} (processed): {combined_user_text}\n")
+                    log_f.write(f"[{timestamp_in_message_text}] {user_display_name} (processed): {combined_user_text}\\n")
                     if relevant_titles_from_kb:
-                        log_f.write(f"[{timestamp_in_message_text}] Найденные ключи БЗ (для processed): {', '.join(relevant_titles_from_kb)}\n")
+                        log_f.write(f"[{timestamp_in_message_text}] Найденные ключи БЗ (для processed): {', '.join(relevant_titles_from_kb)}\\n")
                 else:
-                    log_f.write(f"[{timestamp_in_message_text}] Активировано напоминание: {reminder_context}\n")
+                    log_f.write(f"[{timestamp_in_message_text}] Активировано напоминание: {reminder_context}\\n")
 
-                log_f.write(f"[{timestamp_in_message_text}] Context Builder: Context retrieved successfully\n")
-                log_f.write(f"[{timestamp_in_message_text}] Модель: {bot_response_text}\n\n")
+                log_f.write(f"[{timestamp_in_message_text}] Context Builder: Context retrieved successfully\\n")
+                log_f.write(f"[{timestamp_in_message_text}] Модель: {bot_response_text}\\n\\n")
         except Exception as e:
             logging.error(f"Ошибка записи в локальный лог-файл (processed) '{log_file_path_for_processed}': {e}")
     else:

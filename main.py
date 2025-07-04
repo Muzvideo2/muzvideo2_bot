@@ -45,6 +45,7 @@ VK_COMMUNITY_ID = 48116621
 PROJECT_ID = "zeta-tracer-462306-r7"
 LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"
+SEARCH_MODEL_NAME = "gemini-2.0-flash-exp"  # Быстрая модель для поиска в базе знаний
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -432,6 +433,10 @@ try:
     app.model = GenerativeModel(MODEL_NAME)
     logging.info("Учетные данные Vertex AI успешно загружены. Модель инициализирована.")
     
+    # Инициализация быстрой модели для поиска в базе знаний
+    app.search_model = GenerativeModel(SEARCH_MODEL_NAME)
+    logging.info(f"Модель поиска {SEARCH_MODEL_NAME} инициализирована.")
+    
     # Инициализация сервиса напоминаний
     try:
         initialize_reminder_service()
@@ -599,72 +604,103 @@ def operator_message_sent():
 
 
 def clear_operator_timer(conv_id_for_timer):
-    """
-    Вызывается по истечении 15 минут после последнего сообщения оператора.
-    """
+    """Сбрасывает таймер оператора для указанного диалога."""
     if conv_id_for_timer in operator_timers:
+        operator_timers[conv_id_for_timer].cancel()
         del operator_timers[conv_id_for_timer]
-        logging.info(f"Операторский таймер для диалога {conv_id_for_timer} истёк и был удален.")
+        logging.info(f"Таймер ответа оператора для диалога {conv_id_for_timer} сброшен.")
 
 
-# Глобальная память для недавних event_id
-recent_event_ids = {}
-EVENT_ID_TTL = 30
+def get_last_n_messages(conv_id, n=2):
+    """Извлекает последние n сообщений из диалога."""
+    conn = None
+    messages = []
+    try:
+        conn = get_main_db_connection()
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute(
+                """
+                SELECT role, message
+                FROM dialogues
+                WHERE conv_id = %s
+                ORDER BY timestamp DESC
+                LIMIT %s
+                """,
+                (conv_id, n)
+            )
+            rows = cur.fetchall()
+            messages = list(reversed([{"role": row["role"], "message": row["message"]} for row in rows]))
+    except psycopg2.Error as e:
+        logging.error(f"Ошибка БД при получении последних сообщений для conv_id {conv_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+    return messages
 
-# ====
-# 7. ИНТЕГРАЦИЯ С GEMINI (VERTEX AI)
-# ====
-def find_relevant_titles_with_gemini(user_question_text, model):
+
+def find_relevant_titles_with_gemini(dialog_snippet, model=None):
     """
-    Использует Gemini через Vertex AI SDK для выбора релевантных заголовков.
+    Анализирует фрагмент диалога (последние сообщения) и находит наиболее релевантные заголовки
+    в базе знаний с помощью Gemini.
     """
-    if not knowledge_base:
-        logging.info("База знаний пуста. Поиск релевантных заголовков не выполняется.")
+    # Используем быструю модель для поиска, если основная модель не передана
+    search_model_to_use = app.search_model if model is None else model
+    
+    if not isinstance(search_model_to_use, GenerativeModel):
+        logging.error("Модель поиска не инициализирована или некорректна.")
         return []
 
-    titles = list(knowledge_base.keys())
-    prompt_text = f"""
-Ты — ассистент, помогающий найти наиболее подходящие вопросы из предоставленного списка к запросу пользователя.
-Вот список доступных вопросов-ключей (каждый вопрос - уникальный элемент):
---- НАЧАЛО СПИСКА ВОПРОСОВ ---
-{', '.join(titles)}
---- КОНЕЦ СПИСКА ВОПРОСОВ ---
+    if not dialog_snippet:
+        logging.warning("В find_relevant_titles_with_gemini был передан пустой фрагмент диалога.")
+        return []
 
-Проанализируй следующий запрос пользователя:
-"{user_question_text}"
+    formatted_dialog = "\n".join([f"- {msg['role'].capitalize()}: {msg['message']}" for msg in dialog_snippet])
 
-Твоя задача: выбрать из СПИСКА ВОПРОСОВ не более трех (3) наиболее релевантных вопросов-ключей к этому запросу.
-Крайне важно:
-1.  Ты должен возвращать ТОЛЬКО вопросы-ключи ИЗ ПРЕДОСТАВЛЕННОГО СПИСКА.
-2.  Не выдумывай новые вопросы и не изменяй формулировки существующих.
-3.  Если подходящих вопросов нет, верни пустой ответ.
-4.  Если нашел подходящие вопросы, верни их СТРОГО по одному в каждой строке, без нумерации, без пояснений, без каких-либо дополнительных слов или символов.
+    all_titles = list(knowledge_base.keys())
+    if not all_titles:
+        logging.warning("База знаний пуста или не загружена. Поиск релевантных заголовков невозможен.")
+        return []
 
-Пример ответа, если найдено два вопроса:
-Вопрос-ключ из списка 1
-Вопрос-ключ из списка 2
+    prompt = f"""
+Ты — сверхточный ассистент-классификатор. Твоя задача — проанализировать диалог и определить, соответствуют ли ему какие-либо темы из предоставленного списка.
 
-Ответ:
+Диалог:
+{formatted_dialog}
+
+Список доступных тем:
+---
+{', '.join(all_titles)}
+---
+
+Проанализируй диалог и следуй этим правилам НЕУКОСНИТЕЛЬНО:
+
+1.  **ПРАВИЛО №1 (САМОЕ ВАЖНОЕ):** Если НИ ОДНА из тем в списке не соответствует теме диалога, верни ПУСТОЙ ОТВЕТ. Не пытайся угадать или выбрать наименее плохой вариант. Это критически важно.
+
+2.  **ПРАВИЛО №2:** Возвращай ТОЛЬКО темы ИЗ ПРЕДОСТАВЛЕННОГО СПИСКА. Не изменяй их формулировку и не придумывай новые.
+
+3.  **ПРАВИЛО №3:** Если нашлись релевантные темы, верни до 3-х самых подходящих. Каждую тему на новой строке. Без номеров, без пояснений, без каких-либо других символов.
     """.strip()
 
-    for attempt in range(3):
-        try:
-            response = model.generate_content(prompt_text)
-            
-            text_raw = response.text
-            lines = text_raw.strip().split("\n")
-            relevant_titles_found = [ln.strip() for ln in lines if ln.strip() and ln.strip() in knowledge_base]
-            logging.info(f"Gemini (Vertex AI) нашел релевантные заголовки: {relevant_titles_found} для вопроса: '{user_question_text}'")
-            return relevant_titles_found[:3]
+    try:
+        logging.info(f"Запрос к {SEARCH_MODEL_NAME} для поиска релевантных заголовков по диалогу: {formatted_dialog}")
+        response = search_model_to_use.generate_content(prompt)
 
-        except Exception as e:
-            logging.error(f"Ошибка Vertex AI при поиске заголовков (попытка {attempt + 1}): {e}")
-            if attempt < 2:
-                time.sleep(5)
-            else:
-                logging.warning("Не удалось получить релевантные заголовки от Gemini (Vertex AI) после нескольких попыток.")
-                return []
-    return []
+        if not response.text.strip():
+            logging.info("Модель поиска вернула пустой ответ, релевантных тем не найдено.")
+            return []
+        
+        relevant_titles = [title.strip().replace("*", "").replace("- ", "") for title in response.text.strip().split('\n') if title.strip()]
+        logging.info(f"{SEARCH_MODEL_NAME} определил следующие релевантные заголовки: {relevant_titles}")
+        
+        final_titles = [title for title in relevant_titles if title in all_titles]
+        if len(final_titles) != len(relevant_titles):
+            logging.warning("Модель поиска вернула заголовки, которых нет в базе знаний. Они были отфильтрованы.")
+        
+        return final_titles
+
+    except Exception as e:
+        logging.error(f"Ошибка при взаимодействии с {SEARCH_MODEL_NAME} для поиска релевантных заголовков: {e}")
+        return []
 
 
 def generate_response(user_question_text, context_from_builder, current_custom_prompt, user_first_name, model, relevant_kb_titles=None):
@@ -972,7 +1008,8 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
         logging.error(f"Обработка запроса для conv_id {conv_id_to_respond} прекращена из-за ошибки Context Builder")
         return
 
-    relevant_titles_from_kb = find_relevant_titles_with_gemini(combined_user_text, model)
+    dialog_snippet = get_last_n_messages(conv_id_to_respond, n=2)
+    relevant_titles_from_kb = find_relevant_titles_with_gemini(dialog_snippet)
 
     bot_response_text = generate_response(
         user_question_text=combined_user_text,

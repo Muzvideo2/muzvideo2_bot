@@ -623,7 +623,7 @@ def get_last_n_messages(conv_id, n=2):
                 SELECT role, message
                 FROM dialogues
                 WHERE conv_id = %s
-                ORDER BY timestamp DESC
+                ORDER BY created_at DESC
                 LIMIT %s
                 """,
                 (conv_id, n)

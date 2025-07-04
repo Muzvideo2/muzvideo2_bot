@@ -694,7 +694,7 @@ def find_relevant_titles_with_gemini(dialog_snippet, model=None):
         logging.debug(f"Получен сырой ответ от модели поиска: {response.text}")
         
         # Улучшенный парсинг JSON из ответа модели
-        match = re.search(r'\\{.*\\}', response.text, re.DOTALL)
+        match = re.search(r'\{.*\}', response.text, re.DOTALL)
         if not match:
             logging.warning(f"Модель поиска вернула невалидный JSON (не найдена структура {{}}). Ответ: {response.text}")
             return []

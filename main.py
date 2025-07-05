@@ -947,18 +947,23 @@ def process_video_attachment(attachment):
 
 
 def process_sticker_attachment(attachment):
-    """Обрабатывает стикер"""
+    """Обрабатывает стикер. Учитывает, что API VK может отдавать некорректные URL."""
     temp_file_path = None
     try:
         sticker_data = attachment.get("sticker", {})
-        images = sticker_data.get("images", [])
+        
+        # Приоритет отдаем изображениям с фоном, они чаще имеют корректный URL
+        images = sticker_data.get("images_with_background", [])
+        if not images:
+            images = sticker_data.get("images", []) # Если нет, берем обычные
         
         if images:
             # Берем самое большое изображение стикера
             largest_image = max(images, key=lambda x: x.get("width", 0) * x.get("height", 0))
             sticker_url = largest_image.get("url")
             
-            if sticker_url:
+            # Проверка, что URL действителен и ведет на изображение
+            if sticker_url and sticker_url.lower().endswith(('.png', '.gif', '.jpg', '.jpeg')):
                 # БЕЗОПАСНОСТЬ: Проверяем стикер перед скачиванием
                 try:
                     head_response = requests.head(sticker_url, timeout=10)
@@ -991,6 +996,9 @@ def process_sticker_attachment(attachment):
                 
                 result = attachment_analyzer.analyze_attachment(temp_file_path, "sticker", {"url": sticker_url})
                 return result.get("analysis", "Стикер")
+            else:
+                logging.warning(f"Пропущен некорректный URL стикера: {sticker_url}")
+                return "Стикер (не удалось получить изображение)"
         
         return "Стикер"
         

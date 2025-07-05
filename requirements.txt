@@ -1,4 +1,6 @@
 requests
+# Используем psycopg2-binary вместо psycopg2 для значительного ускорения
+# деплоя на Railway, т.к. эта версия не требует компиляции.
 psycopg2-binary
 vk_api
 Flask

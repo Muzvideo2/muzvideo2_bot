@@ -952,55 +952,60 @@ def process_sticker_attachment(attachment):
     try:
         sticker_data = attachment.get("sticker", {})
         
-        # Приоритет отдаем изображениям с фоном, они чаще имеют корректный URL
-        images = sticker_data.get("images_with_background", [])
-        if not images:
-            images = sticker_data.get("images", []) # Если нет, берем обычные
+        # Собираем все доступные варианты изображений в один список
+        all_images = sticker_data.get("images_with_background", []) + sticker_data.get("images", [])
         
-        if images:
-            # Берем самое большое изображение стикера
-            largest_image = max(images, key=lambda x: x.get("width", 0) * x.get("height", 0))
-            sticker_url = largest_image.get("url")
+        if not all_images:
+            return "Стикер (нет изображений)"
+
+        # Сортируем по размеру, чтобы сначала пробовать самые качественные
+        all_images.sort(key=lambda x: x.get("width", 0) * x.get("height", 0), reverse=True)
+        
+        sticker_url = None
+        # Ищем первый валидный URL
+        for image_data in all_images:
+            url = image_data.get("url")
+            if url and url.lower().endswith(('.png', '.gif', '.jpg', '.jpeg')):
+                sticker_url = url
+                logging.info(f"Найден валидный URL для стикера: {sticker_url}")
+                break # Нашли, выходим из цикла
+        
+        if sticker_url:
+            # БЕЗОПАСНОСТЬ: Проверяем стикер перед скачиванием
+            try:
+                head_response = requests.head(sticker_url, timeout=10)
+                head_response.raise_for_status()
+                
+                # Проверяем Content-Length (максимум 10MB)
+                content_length = head_response.headers.get('Content-Length')
+                if content_length and int(content_length) > 10 * 1024 * 1024:
+                    return "Стикер слишком большой (>10MB)"
+                
+                # Проверяем Content-Type
+                content_type = head_response.headers.get('Content-Type', '')
+                if not content_type.startswith('image/'):
+                    return "Некорректный тип стикера"
+                    
+            except Exception as e:
+                logging.error(f"Ошибка проверки URL стикера: {e}")
+                return "Ошибка доступа к стикеру"
             
-            # Проверка, что URL действителен и ведет на изображение
-            if sticker_url and sticker_url.lower().endswith(('.png', '.gif', '.jpg', '.jpeg')):
-                # БЕЗОПАСНОСТЬ: Проверяем стикер перед скачиванием
-                try:
-                    head_response = requests.head(sticker_url, timeout=10)
-                    head_response.raise_for_status()
-                    
-                    # Проверяем Content-Length (максимум 10MB)
-                    content_length = head_response.headers.get('Content-Length')
-                    if content_length and int(content_length) > 10 * 1024 * 1024:
-                        return "Стикер слишком большой (>10MB)"
-                    
-                    # Проверяем Content-Type
-                    content_type = head_response.headers.get('Content-Type', '')
-                    if not content_type.startswith('image/'):
-                        return "Некорректный тип стикера"
-                        
-                except Exception as e:
-                    logging.error(f"Ошибка проверки URL стикера: {e}")
-                    return "Ошибка доступа к стикеру"
-                
-                # Скачиваем и анализируем
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
-                    response = requests.get(sticker_url, timeout=30)
-                    response.raise_for_status()
-                    temp_file.write(response.content)
-                    temp_file_path = temp_file.name
-                
-                # Проверяем, что анализатор инициализирован с Vertex AI
-                if not hasattr(attachment_analyzer, 'model') or attachment_analyzer.model is None:
-                    return "Стикер (анализатор не готов)"
-                
-                result = attachment_analyzer.analyze_attachment(temp_file_path, "sticker", {"url": sticker_url})
-                return result.get("analysis", "Стикер")
-            else:
-                logging.warning(f"Пропущен некорректный URL стикера: {sticker_url}")
-                return "Стикер (не удалось получить изображение)"
-        
-        return "Стикер"
+            # Скачиваем и анализируем
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+                response = requests.get(sticker_url, timeout=30)
+                response.raise_for_status()
+                temp_file.write(response.content)
+                temp_file_path = temp_file.name
+            
+            # Проверяем, что анализатор инициализирован с Vertex AI
+            if not hasattr(attachment_analyzer, 'model') or attachment_analyzer.model is None:
+                return "Стикер (анализатор не готов)"
+            
+            result = attachment_analyzer.analyze_attachment(temp_file_path, "sticker", {"url": sticker_url})
+            return result.get("analysis", "Стикер")
+        else:
+            logging.warning(f"Не найдено ни одного валидного URL среди всех изображений стикера.")
+            return "Стикер (не удалось получить изображение)"
         
     except Exception as e:
         logging.error(f"Ошибка обработки стикера: {e}")

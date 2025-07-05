@@ -1009,9 +1009,10 @@ def process_sticker_attachment(attachment):
         
     except Exception as e:
         logging.error(f"Ошибка обработки стикера: {e}")
-        return "Стикер"
+        # Возвращаем общее сообщение об ошибке, если что-то пошло не так
+        return "[Стикер (ошибка обработки)]"
     finally:
-        # Гарантированная очистка временного файла
+        # Гарантированно удаляем временный файл
         if temp_file_path and os.path.exists(temp_file_path):
             try:
                 os.unlink(temp_file_path)

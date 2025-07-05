@@ -459,15 +459,22 @@ try:
     
     # Инициализация анализатора вложений (Vertex AI уже инициализирован выше)
     try:
+        logging.info("Начинаю инициализацию AttachmentAnalyzer...")
         attachment_analyzer = AttachmentAnalyzer()
-        # Vertex AI уже инициализирован выше - не дублируем инициализацию
-        if hasattr(attachment_analyzer, 'model') and attachment_analyzer.model is not None:
-            logging.info("Анализатор вложений успешно инициализирован.")
+        logging.info("AttachmentAnalyzer создан успешно")
+        
+        if hasattr(attachment_analyzer, 'model'):
+            logging.info(f"attachment_analyzer.model = {attachment_analyzer.model}")
+            if attachment_analyzer.model is not None:
+                logging.info("Анализатор вложений успешно инициализирован.")
+            else:
+                logging.error("ПРОБЛЕМА: attachment_analyzer.model = None (Vertex AI не готов)")
+                attachment_analyzer = None
         else:
-            logging.warning("Анализатор вложений создан, но Vertex AI не готов.")
+            logging.error("ПРОБЛЕМА: attachment_analyzer не имеет атрибута 'model'")
             attachment_analyzer = None
     except Exception as e:
-        logging.error(f"Ошибка инициализации анализатора вложений: {e}")
+        logging.error(f"КРИТИЧЕСКАЯ ОШИБКА инициализации AttachmentAnalyzer: {e}", exc_info=True)
         attachment_analyzer = None
 except Exception as e:
     logging.critical(f"КРИТИЧЕСКАЯ ОШИБКА: Не удалось инициализировать Vertex AI. Приложение не сможет работать. Ошибка: {e}")
@@ -817,6 +824,7 @@ def process_photo_attachment(attachment):
 
 def process_audio_message_attachment(attachment):
     """Обрабатывает голосовое сообщение"""
+    logging.info(f"Начинаю обработку голосового сообщения: {attachment}")
     temp_file_path = None
     try:
         audio_data = attachment.get("audio_message", {})
@@ -852,6 +860,12 @@ def process_audio_message_attachment(attachment):
             temp_file_path = temp_file.name
         
         # Проверяем, что анализатор инициализирован с Vertex AI
+        logging.info(f"ПРОВЕРКА АНАЛИЗАТОРА: attachment_analyzer = {attachment_analyzer}")
+        if attachment_analyzer:
+            logging.info(f"ПРОВЕРКА АНАЛИЗАТОРА: hasattr(model) = {hasattr(attachment_analyzer, 'model')}")
+            if hasattr(attachment_analyzer, 'model'):
+                logging.info(f"ПРОВЕРКА АНАЛИЗАТОРА: attachment_analyzer.model = {attachment_analyzer.model}")
+
         if not hasattr(attachment_analyzer, 'model') or attachment_analyzer.model is None:
             return "Анализатор вложений не готов (Vertex AI не инициализирован)"
         
@@ -1695,13 +1709,23 @@ def callback_handler():
     # ДОБАВИТЬ: Запуск анализа вложений при их наличии (с защитой от ошибок)
     attachments = actual_message_payload.get("attachments", [])
     message_id = actual_message_payload.get("id")  # Уникальный ID сообщения
+
+    # Диагностическое логирование
+    if attachments:
+        logging.info(f"ДИАГНОСТИКА: Обнаружено {len(attachments)} вложений.")
+        logging.info(f"ДИАГНОСТИКА: Статус attachment_analyzer: {attachment_analyzer}")
+        logging.info(f"ДИАГНОСТИКА: Сообщение is_outgoing: {is_outgoing}")
+
     if attachments and attachment_analyzer and not is_outgoing:
         try:
+            logging.info("Условия для запуска анализа выполнены. Запускаю start_attachment_analysis_async...")
             start_attachment_analysis_async(attachments, conversation_id_for_handler, message_id)
             logging.info(f"Запущен анализ {len(attachments)} вложений для conv_id {conversation_id_for_handler}, message_id {message_id}")
         except Exception as e:
             logging.error(f"Ошибка запуска анализа вложений в callback_handler для conv_id {conversation_id_for_handler}: {e}")
             # Продолжаем обработку сообщения без анализа вложений
+    elif attachments:
+        logging.warning(f"Анализ вложений НЕ запущен. attachment_analyzer={attachment_analyzer}, is_outgoing={is_outgoing}")
 
     vk_session_for_handler = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
     vk_api_local = vk_session_for_handler.get_api()

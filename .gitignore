@@ -33,6 +33,7 @@ Thumbs.db
 
 # Credentials (just in case)
 *.key
+key.json
 
 # Railway specific
 .railway/ 

@@ -6,9 +6,10 @@ import requests
 import psycopg2
 import psycopg2.extras
 import subprocess
+import tempfile  # Для работы с временными файлами при анализе вложений
 from datetime import datetime, timedelta, timezone
 import threading
-from concurrent.futures import ThreadPoolExecutor  # Для асинхронного context builder
+from concurrent.futures import ThreadPoolExecutor, TimeoutError  # Для асинхронного context builder
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
 from vk_api.utils import get_random_id
@@ -24,6 +25,9 @@ from google.oauth2 import service_account
 
 # Импорт сервиса напоминаний
 from reminder_service import process_new_message as process_reminder_message, initialize_reminder_service
+
+# Импорт анализатора вложений
+from attachment_analyzer import AttachmentAnalyzer
 
 # ====
 # Читаем переменные окружения (секретные данные)
@@ -61,6 +65,15 @@ last_questions = {}
 
 # ThreadPoolExecutor для асинхронной обработки context builder
 context_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="ContextBuilder")
+
+# Глобальные переменные для анализатора вложений
+attachment_analyzer = None
+# Результаты анализа вложений {conv_id: {message_id: (analysis_result, timestamp)}}
+attachment_analysis_results = {}
+# Активные задачи анализа {conv_id: {message_id: (future, timestamp)}}
+active_analysis_tasks = {}
+# TTL для результатов анализа (5 минут)
+ATTACHMENT_ANALYSIS_TTL = 300
 
 # Константы
 USER_MESSAGE_BUFFERING_DELAY = 60
@@ -443,6 +456,20 @@ try:
         logging.info("Сервис напоминаний успешно инициализирован.")
     except Exception as e:
         logging.error(f"Ошибка инициализации сервиса напоминаний: {e}")
+    
+    # Инициализация анализатора вложений (Vertex AI уже инициализирован выше)
+    try:
+        global attachment_analyzer
+        attachment_analyzer = AttachmentAnalyzer()
+        # Vertex AI уже инициализирован выше - не дублируем инициализацию
+        if hasattr(attachment_analyzer, 'model') and attachment_analyzer.model is not None:
+            logging.info("Анализатор вложений успешно инициализирован.")
+        else:
+            logging.warning("Анализатор вложений создан, но Vertex AI не готов.")
+            attachment_analyzer = None
+    except Exception as e:
+        logging.error(f"Ошибка инициализации анализатора вложений: {e}")
+        attachment_analyzer = None
 except Exception as e:
     logging.critical(f"КРИТИЧЕСКАЯ ОШИБКА: Не удалось инициализировать Vertex AI. Приложение не сможет работать. Ошибка: {e}")
     # В проде приложение может продолжить работать без модели, но будет выдавать ошибки.
@@ -609,6 +636,457 @@ def clear_operator_timer(conv_id_for_timer):
         operator_timers[conv_id_for_timer].cancel()
         del operator_timers[conv_id_for_timer]
         logging.info(f"Таймер ответа оператора для диалога {conv_id_for_timer} сброшен.")
+
+
+# ====
+# ФУНКЦИИ АНАЛИЗА ВЛОЖЕНИЙ
+# ====
+def cleanup_attachment_analysis_cache():
+    """Очищает устаревшие записи из кеша анализа вложений (TTL)"""
+    current_time = time.time()
+    
+    # Очистка результатов анализа
+    conv_ids_to_remove = []
+    for conv_id, messages in list(attachment_analysis_results.items()):
+        message_ids_to_remove = []
+        for message_id, (analysis, timestamp) in list(messages.items()):
+            if current_time - timestamp > ATTACHMENT_ANALYSIS_TTL:
+                message_ids_to_remove.append(message_id)
+        
+        for message_id in message_ids_to_remove:
+            del messages[message_id]
+        
+        if not messages:
+            conv_ids_to_remove.append(conv_id)
+    
+    for conv_id in conv_ids_to_remove:
+        del attachment_analysis_results[conv_id]
+    
+    # Очистка активных задач
+    conv_ids_to_remove = []
+    for conv_id, messages in list(active_analysis_tasks.items()):
+        message_ids_to_remove = []
+        for message_id, (future, timestamp) in list(messages.items()):
+            if current_time - timestamp > ATTACHMENT_ANALYSIS_TTL:
+                message_ids_to_remove.append(message_id)
+        
+        for message_id in message_ids_to_remove:
+            del messages[message_id]
+        
+        if not messages:
+            conv_ids_to_remove.append(conv_id)
+    
+    for conv_id in conv_ids_to_remove:
+        del active_analysis_tasks[conv_id]
+    
+    if conv_ids_to_remove or any(message_ids_to_remove for conv_id, messages in attachment_analysis_results.items() for message_ids_to_remove in [[]]):
+        logging.debug(f"Очищены устаревшие записи анализа вложений (TTL: {ATTACHMENT_ANALYSIS_TTL}с)")
+
+
+def start_attachment_analysis_async(attachments, conv_id, message_id):
+    """Запускает асинхронный анализ вложений"""
+    # Автоочистка старых записей при каждом запуске
+    cleanup_attachment_analysis_cache()
+    
+    def analyze():
+        try:
+            analysis = analyze_attachments_from_vk(attachments)
+            timestamp = time.time()
+            attachment_analysis_results.setdefault(conv_id, {})[message_id] = (analysis, timestamp)
+            logging.info(f"Анализ вложений завершен для conv_id {conv_id}, message_id {message_id}")
+        except Exception as e:
+            logging.error(f"Ошибка анализа вложений для conv_id {conv_id}: {e}")
+            timestamp = time.time()
+            attachment_analysis_results.setdefault(conv_id, {})[message_id] = (None, timestamp)
+    
+    # Запуск в отдельном потоке
+    future = context_executor.submit(analyze)
+    timestamp = time.time()
+    active_analysis_tasks.setdefault(conv_id, {})[message_id] = (future, timestamp)
+
+
+def analyze_attachments_from_vk(attachments):
+    """Анализирует вложения из VK и возвращает текстовый анализ"""
+    if not attachment_analyzer:
+        logging.warning("Анализатор вложений не инициализирован")
+        return None
+    
+    # ЗАЩИТА ОТ DOS: Лимит максимум 5 вложений на сообщение
+    if len(attachments) > 5:
+        logging.warning(f"Превышен лимит вложений: {len(attachments)} > 5. Обрабатываем только первые 5.")
+        attachments = attachments[:5]
+        
+    results = []
+    for attachment in attachments:
+        try:
+            # Валидация типа данных
+            if not isinstance(attachment, dict):
+                logging.warning(f"Некорректный тип вложения: {type(attachment)}. Пропускаем.")
+                continue
+                
+            # Создание временного файла и анализ через attachment_analyzer
+            analysis = process_single_attachment(attachment)
+            if analysis:
+                results.append(analysis)
+        except Exception as e:
+            logging.error(f"Ошибка анализа вложения {attachment}: {e}")
+    
+    return "\n\n".join(results) if results else None
+
+
+def process_single_attachment(attachment):
+    """Обрабатывает одно вложение из VK"""
+    attachment_type = attachment.get("type")
+    
+    if attachment_type == "photo":
+        return process_photo_attachment(attachment)
+    elif attachment_type == "audio_message":
+        return process_audio_message_attachment(attachment)
+    elif attachment_type == "video":
+        return process_video_attachment(attachment)
+    elif attachment_type == "sticker":
+        return process_sticker_attachment(attachment)
+    elif attachment_type == "wall":
+        return process_wall_attachment(attachment)
+    elif attachment_type == "audio":
+        return process_audio_attachment(attachment)
+    else:
+        logging.info(f"Неподдерживаемый тип вложения: {attachment_type}")
+        return f"Вложение типа {attachment_type}"
+
+
+def process_photo_attachment(attachment):
+    """Обрабатывает фото вложение"""
+    temp_file_path = None
+    try:
+        photo_data = attachment.get("photo", {})
+        sizes = photo_data.get("sizes", [])
+        if not sizes:
+            return "Фото без доступных размеров"
+        
+        # Берем самый большой размер
+        largest_size = max(sizes, key=lambda x: x.get("width", 0) * x.get("height", 0))
+        photo_url = largest_size.get("url")
+        
+        if not photo_url:
+            return "Фото без доступного URL"
+        
+        # БЕЗОПАСНОСТЬ: Сначала HEAD запрос для проверки размера и типа
+        try:
+            head_response = requests.head(photo_url, timeout=10)
+            head_response.raise_for_status()
+            
+            # Проверяем Content-Length (максимум 10MB)
+            content_length = head_response.headers.get('Content-Length')
+            if content_length and int(content_length) > 10 * 1024 * 1024:
+                return "Фото слишком большое (>10MB)"
+            
+            # Проверяем Content-Type
+            content_type = head_response.headers.get('Content-Type', '')
+            if not content_type.startswith('image/'):
+                return "Некорректный тип файла (не изображение)"
+                
+        except Exception as e:
+            logging.error(f"Ошибка проверки URL фото: {e}")
+            return "Ошибка доступа к фото"
+        
+        # Только после проверки скачиваем файл
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
+            response = requests.get(photo_url, timeout=30)
+            response.raise_for_status()
+            temp_file.write(response.content)
+            temp_file_path = temp_file.name
+        
+        # Проверяем, что анализатор инициализирован с Vertex AI
+        if not hasattr(attachment_analyzer, 'model') or attachment_analyzer.model is None:
+            return "Анализатор вложений не готов (Vertex AI не инициализирован)"
+        
+        result = attachment_analyzer.analyze_attachment(temp_file_path, "photo", {"url": photo_url})
+        return result.get("analysis", "Не удалось проанализировать фото")
+            
+    except Exception as e:
+        logging.error(f"Ошибка обработки фото: {e}")
+        return "Ошибка анализа фото"
+    finally:
+        # Гарантированная очистка временного файла
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except Exception as e:
+                logging.error(f"Ошибка удаления временного файла {temp_file_path}: {e}")
+
+
+def process_audio_message_attachment(attachment):
+    """Обрабатывает голосовое сообщение"""
+    temp_file_path = None
+    try:
+        audio_data = attachment.get("audio_message", {})
+        audio_url = audio_data.get("link_mp3") or audio_data.get("link_ogg")
+        
+        if not audio_url:
+            return "Голосовое сообщение без доступного URL"
+        
+        # БЕЗОПАСНОСТЬ: Сначала HEAD запрос для проверки размера и типа
+        try:
+            head_response = requests.head(audio_url, timeout=10)
+            head_response.raise_for_status()
+            
+            # Проверяем Content-Length (максимум 10MB)
+            content_length = head_response.headers.get('Content-Length')
+            if content_length and int(content_length) > 10 * 1024 * 1024:
+                return "Голосовое сообщение слишком большое (>10MB)"
+            
+            # Проверяем Content-Type
+            content_type = head_response.headers.get('Content-Type', '')
+            if not content_type.startswith('audio/'):
+                return "Некорректный тип файла (не аудио)"
+                
+        except Exception as e:
+            logging.error(f"Ошибка проверки URL аудио: {e}")
+            return "Ошибка доступа к голосовому сообщению"
+        
+        # Только после проверки скачиваем файл
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
+            response = requests.get(audio_url, timeout=30)
+            response.raise_for_status()
+            temp_file.write(response.content)
+            temp_file_path = temp_file.name
+        
+        # Проверяем, что анализатор инициализирован с Vertex AI
+        if not hasattr(attachment_analyzer, 'model') or attachment_analyzer.model is None:
+            return "Анализатор вложений не готов (Vertex AI не инициализирован)"
+        
+        result = attachment_analyzer.analyze_attachment(temp_file_path, "audio_message", {"url": audio_url})
+        return result.get("analysis", "Не удалось проанализировать голосовое сообщение")
+            
+    except Exception as e:
+        logging.error(f"Ошибка обработки голосового сообщения: {e}")
+        return "Ошибка анализа голосового сообщения"
+    finally:
+        # Гарантированная очистка временного файла
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except Exception as e:
+                logging.error(f"Ошибка удаления временного файла {temp_file_path}: {e}")
+
+
+def process_video_attachment(attachment):
+    """Обрабатывает видео вложение через превью-кадры"""
+    temp_file_path = None
+    try:
+        video_data = attachment.get("video", {})
+        video_id = video_data.get("id")
+        owner_id = video_data.get("owner_id")
+        title = video_data.get("title", "")
+        
+        # Получаем превью-кадр
+        image = video_data.get("image", [])
+        if image:
+            # Берем самое большое изображение
+            largest_image = max(image, key=lambda x: x.get("width", 0) * x.get("height", 0))
+            preview_url = largest_image.get("url")
+            
+            if preview_url:
+                # БЕЗОПАСНОСТЬ: Проверяем превью-изображение перед скачиванием
+                try:
+                    head_response = requests.head(preview_url, timeout=10)
+                    head_response.raise_for_status()
+                    
+                    # Проверяем Content-Length (максимум 10MB)
+                    content_length = head_response.headers.get('Content-Length')
+                    if content_length and int(content_length) > 10 * 1024 * 1024:
+                        return f"Видео '{title}': превью слишком большое (>10MB)"
+                    
+                    # Проверяем Content-Type
+                    content_type = head_response.headers.get('Content-Type', '')
+                    if not content_type.startswith('image/'):
+                        return f"Видео '{title}': некорректный тип превью"
+                        
+                except Exception as e:
+                    logging.error(f"Ошибка проверки превью видео: {e}")
+                    return f"Видео '{title}': ошибка доступа к превью"
+                
+                # Скачиваем и анализируем превью
+                with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
+                    response = requests.get(preview_url, timeout=30)
+                    response.raise_for_status()
+                    temp_file.write(response.content)
+                    temp_file_path = temp_file.name
+                
+                # Проверяем, что анализатор инициализирован с Vertex AI
+                if not hasattr(attachment_analyzer, 'model') or attachment_analyzer.model is None:
+                    return f"Видео: {title} (анализатор не готов)"
+                
+                # ИСПРАВЛЕНИЕ: Для видео используем анализ превью как фото, а не как видео
+                metadata = {"title": title, "video_id": video_id, "owner_id": owner_id, "preview_url": preview_url}
+                result = attachment_analyzer.analyze_attachment(temp_file_path, "photo", metadata)
+                analysis = result.get("analysis", f"Видео: {title}")
+                return f"Видео '{title}': {analysis}"
+        
+        return f"Видео: {title}" if title else "Видео без превью"
+        
+    except Exception as e:
+        logging.error(f"Ошибка обработки видео: {e}")
+        return "Ошибка анализа видео"
+    finally:
+        # Гарантированная очистка временного файла
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except Exception as e:
+                logging.error(f"Ошибка удаления временного файла {temp_file_path}: {e}")
+
+
+def process_sticker_attachment(attachment):
+    """Обрабатывает стикер"""
+    temp_file_path = None
+    try:
+        sticker_data = attachment.get("sticker", {})
+        images = sticker_data.get("images", [])
+        
+        if images:
+            # Берем самое большое изображение стикера
+            largest_image = max(images, key=lambda x: x.get("width", 0) * x.get("height", 0))
+            sticker_url = largest_image.get("url")
+            
+            if sticker_url:
+                # БЕЗОПАСНОСТЬ: Проверяем стикер перед скачиванием
+                try:
+                    head_response = requests.head(sticker_url, timeout=10)
+                    head_response.raise_for_status()
+                    
+                    # Проверяем Content-Length (максимум 10MB)
+                    content_length = head_response.headers.get('Content-Length')
+                    if content_length and int(content_length) > 10 * 1024 * 1024:
+                        return "Стикер слишком большой (>10MB)"
+                    
+                    # Проверяем Content-Type
+                    content_type = head_response.headers.get('Content-Type', '')
+                    if not content_type.startswith('image/'):
+                        return "Некорректный тип стикера"
+                        
+                except Exception as e:
+                    logging.error(f"Ошибка проверки URL стикера: {e}")
+                    return "Ошибка доступа к стикеру"
+                
+                # Скачиваем и анализируем
+                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+                    response = requests.get(sticker_url, timeout=30)
+                    response.raise_for_status()
+                    temp_file.write(response.content)
+                    temp_file_path = temp_file.name
+                
+                # Проверяем, что анализатор инициализирован с Vertex AI
+                if not hasattr(attachment_analyzer, 'model') or attachment_analyzer.model is None:
+                    return "Стикер (анализатор не готов)"
+                
+                result = attachment_analyzer.analyze_attachment(temp_file_path, "sticker", {"url": sticker_url})
+                return result.get("analysis", "Стикер")
+        
+        return "Стикер"
+        
+    except Exception as e:
+        logging.error(f"Ошибка обработки стикера: {e}")
+        return "Стикер"
+    finally:
+        # Гарантированная очистка временного файла
+        if temp_file_path and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except Exception as e:
+                logging.error(f"Ошибка удаления временного файла {temp_file_path}: {e}")
+
+
+def process_wall_attachment(attachment):
+    """Обрабатывает репост"""
+    try:
+        wall_data = attachment.get("wall", {})
+        
+        # Анализ ТОЛЬКО через анализатор (соответствие первоначальному плану)
+        if not attachment_analyzer or not hasattr(attachment_analyzer, 'model') or attachment_analyzer.model is None:
+            return "Ошибка анализа репоста: анализатор не готов"
+        
+        try:
+            metadata = {"original_data": wall_data}
+            result = attachment_analyzer.analyze_attachment("", "wall", metadata)
+            return result.get("analysis", "Не удалось проанализировать репост")
+        except Exception as e:
+            logging.error(f"Ошибка анализа репоста через анализатор: {e}")
+            return "Ошибка анализа репоста"
+        
+    except Exception as e:
+        logging.error(f"Ошибка обработки репоста: {e}")
+        return "Репост"
+
+
+def process_audio_attachment(attachment):
+    """Обрабатывает музыкальную композицию"""
+    try:
+        audio_data = attachment.get("audio", {})
+        
+        # Анализ ТОЛЬКО через анализатор (соответствие первоначальному плану)
+        if not attachment_analyzer or not hasattr(attachment_analyzer, 'model') or attachment_analyzer.model is None:
+            return "Ошибка анализа музыки: анализатор не готов"
+        
+        try:
+            metadata = {"original_data": audio_data}
+            result = attachment_analyzer.analyze_attachment("", "audio", metadata)
+            return result.get("analysis", "Не удалось проанализировать музыку")
+        except Exception as e:
+            logging.error(f"Ошибка анализа музыки через анализатор: {e}")
+            return "Ошибка анализа музыки"
+        
+    except Exception as e:
+        logging.error(f"Ошибка обработки музыки: {e}")
+        return "Музыкальная композиция"
+
+
+def wait_for_attachment_analysis(conv_id, timeout=30):
+    """Ожидает завершения анализа вложений с таймаутом (параллельное ожидание)"""
+    if conv_id not in active_analysis_tasks:
+        return get_completed_analysis(conv_id)
+    
+    # Параллельное ожидание всех задач с общим таймаутом
+    import concurrent.futures
+    # Извлекаем futures из кортежей (future, timestamp)
+    tasks_to_wait = [future for future, timestamp in active_analysis_tasks[conv_id].values()]
+    
+    try:
+        # Ожидание ВСЕХ задач с общим таймаутом 30 сек
+        concurrent.futures.wait(tasks_to_wait, timeout=timeout)
+        logging.debug(f"Ожидание анализа вложений завершено для conv_id {conv_id}")
+    except Exception as e:
+        logging.error(f"Ошибка при ожидании анализа вложений для conv_id {conv_id}: {e}")
+    
+    return get_completed_analysis(conv_id)
+
+
+def get_completed_analysis(conv_id):
+    """Получает завершенный анализ вложений для conv_id"""
+    if conv_id not in attachment_analysis_results:
+        return None
+    
+    analyses = []
+    for message_id, (analysis, timestamp) in attachment_analysis_results[conv_id].items():
+        if analysis:
+            analyses.append(analysis)
+    
+    # Объединяем все анализы для conv_id
+    result = "\n\n".join(analyses) if analyses else None
+    
+    # Очищаем результаты после получения (они уже не нужны)
+    try:
+        if conv_id in attachment_analysis_results:
+            del attachment_analysis_results[conv_id]
+        if conv_id in active_analysis_tasks:
+            del active_analysis_tasks[conv_id]
+        logging.debug(f"Результаты анализа очищены для conv_id {conv_id}")
+    except KeyError:
+        # Результаты уже очищены - это нормально
+        pass
+    
+    return result
 
 
 def get_last_n_messages(conv_id, n=2):
@@ -1003,6 +1481,14 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
         combined_user_text = "\n".join(buffered_messages).strip()
         logging.info(f"Сообщения для conv_id {conv_id_to_respond} извлечены из буфера. Объединенный текст: '{combined_user_text[:100]}...'")
         user_buffers[conv_id_to_respond] = []
+        
+        # ДОБАВИТЬ: Ожидание завершения анализа вложений
+        attachment_analysis = wait_for_attachment_analysis(conv_id_to_respond)
+        if attachment_analysis:
+            combined_user_text = f"{combined_user_text}\n\n[АНАЛИЗ ВЛОЖЕНИЙ]\n{attachment_analysis}"
+            logging.info(f"Анализ вложений добавлен к сообщению для conv_id {conv_id_to_respond}")
+        else:
+            logging.debug(f"Анализ вложений отсутствует для conv_id {conv_id_to_respond}")
     else:
         logging.info(f"Это вызов по напоминанию для conv_id {conv_id_to_respond} (контекст: '{reminder_context}'). Буфер сообщений не используется.")
         # combined_user_text остается пустым, так как вопрос генерируется на основе контекста напоминания.
@@ -1206,6 +1692,17 @@ def callback_handler():
     elif not message_text.strip() and actual_message_payload.get("attachments"):
         message_text = "[Вложение без текста]"
         logging.info(f"Callback: Сообщение от from_id {from_id} с вложением, но без текста. Установлен плейсхолдер.")
+
+    # ДОБАВИТЬ: Запуск анализа вложений при их наличии (с защитой от ошибок)
+    attachments = actual_message_payload.get("attachments", [])
+    message_id = actual_message_payload.get("id")  # Уникальный ID сообщения
+    if attachments and attachment_analyzer and not is_outgoing:
+        try:
+            start_attachment_analysis_async(attachments, conversation_id_for_handler, message_id)
+            logging.info(f"Запущен анализ {len(attachments)} вложений для conv_id {conversation_id_for_handler}, message_id {message_id}")
+        except Exception as e:
+            logging.error(f"Ошибка запуска анализа вложений в callback_handler для conv_id {conversation_id_for_handler}: {e}")
+            # Продолжаем обработку сообщения без анализа вложений
 
     vk_session_for_handler = vk_api.VkApi(token=VK_COMMUNITY_TOKEN)
     vk_api_local = vk_session_for_handler.get_api()

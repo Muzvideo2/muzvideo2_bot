@@ -3,7 +3,7 @@
 # Использует Vertex AI (gemini-2.5-flash) для полного анализа всех типов вложений:
 # - Фото/стикеры: полное OCR извлечение текста
 # - Голосовые: полная транскрипция речи
-# - ВИДЕО: скачивание первых 2 минут + полный анализ видеоряда через Gemini
+# - ВИДЕО: анализ превью-кадров (обложка + 3-4 кадра) через Gemini
 # - Репосты/музыка: анализ метаданных
 # Создает контекст для понимания бота и быстрых ответов. Работает локально.
 # --- Конец описания ---
@@ -13,7 +13,6 @@ import json
 import logging
 import base64
 import mimetypes
-import subprocess
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 import vertexai
@@ -78,12 +77,12 @@ class AttachmentAnalyzer:
                                Переведи всю речь в текст с максимальной точностью.
                                Отвечай на русском языке.""",
                                
-            'video': """Проанализируй это видео максимально подробно:
+            'video': """Проанализируй этот превью-кадр видео максимально подробно:
                        1. СОДЕРЖАНИЕ: Что происходит? Кто участвует? О чем говорят?
                        2. ВИЗУАЛЬНОЕ: Опиши обстановку, объекты, действия
-                       3. АУДИО: Транскрибируй речь и звуки
-                       4. ТЕКСТ НА ЭКРАНЕ: Извлеки ВЕСЬ видимый текст
-                       5. КОНТЕКСТ: Тема, жанр, настроение видео
+                       3. ТЕКСТ НА ЭКРАНЕ: Извлеки ВЕСЬ видимый текст
+                       4. КОНТЕКСТ: Тема, жанр, настроение видео
+                       5. ДЕТАЛИ: Все важные элементы на кадре
                        Отвечай на русском языке.""",
                        
             'sticker': """Опиши этот стикер.
@@ -202,62 +201,86 @@ class AttachmentAnalyzer:
                     
             raise Exception("Все регионы Vertex AI недоступны")
             
-    def download_and_trim_video(self, video_url: str, output_path: str, duration_seconds: int = 120) -> bool:
-        """Скачивание и обрезка видео до указанной продолжительности"""
+    def download_frame(self, url: str, filename: str) -> Optional[str]:
+        """Скачивание кадра видео по URL"""
         try:
-            logger.info(f"Скачиваем и обрезаем видео: {video_url}")
+            logger.info(f"Скачиваем кадр: {url}")
+            response = requests.get(url, timeout=30)
+            if response.status_code == 200:
+                # Создаем папку для кадров если нет
+                frames_dir = os.path.join(self.results_dir, 'frames')
+                if not os.path.exists(frames_dir):
+                    os.makedirs(frames_dir)
+                    
+                filepath = os.path.join(frames_dir, filename)
+                with open(filepath, 'wb') as f:
+                    f.write(response.content)
+                logger.info(f"Кадр скачан: {filename}")
+                return filepath
+            else:
+                logger.error(f"Ошибка скачивания кадра: HTTP {response.status_code}")
+                return None
+        except Exception as e:
+            logger.error(f"Ошибка скачивания кадра {filename}: {e}")
+            return None
             
-            # Создаем временный файл для полного видео
-            temp_video = output_path.replace('.mp4', '_temp.mp4')
+    def analyze_frame_with_gemini(self, image_path: str, frame_type: str, video_info: Dict) -> str:
+        """Анализ кадра видео с помощью Gemini"""
+        try:
+            # Загружаем изображение
+            with open(image_path, 'rb') as f:
+                image_data = f.read()
             
-            # Скачиваем видео
-            response = requests.get(video_url, stream=True, timeout=30)
-            response.raise_for_status()
-            
-            with open(temp_video, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
-            logger.info(f"Видео скачано: {temp_video}")
-            
-            # Обрезаем до указанной продолжительности с помощью ffmpeg
-            ffmpeg_cmd = [
-                'ffmpeg',
-                '-i', temp_video,
-                '-t', str(duration_seconds),  # Длительность в секундах
-                '-c:v', 'libx264',  # Кодек видео
-                '-c:a', 'aac',      # Кодек аудио
-                '-y',               # Перезаписать выходной файл
-                output_path
-            ]
-            
-            logger.info(f"Обрезаем видео командой: {' '.join(ffmpeg_cmd)}")
-            
-            result = subprocess.run(
-                ffmpeg_cmd,
-                capture_output=True,
-                text=True,
-                timeout=300  # 5 минут максимум
+            image_part = Part.from_data(
+                data=image_data,
+                mime_type="image/jpeg"
             )
             
-            # Удаляем временный файл
-            if os.path.exists(temp_video):
-                os.remove(temp_video)
-            
-            if result.returncode == 0:
-                logger.info(f"Видео успешно обрезано: {output_path}")
-                return True
-            else:
-                logger.error(f"Ошибка ffmpeg: {result.stderr}")
-                return False
-                
-        except subprocess.TimeoutExpired:
-            logger.error("Превышено время ожидания обработки видео")
-            return False
-        except Exception as e:
-            logger.error(f"Ошибка скачивания/обрезки видео: {e}")
-            return False
+            # Формируем промпт в зависимости от типа кадра
+            if frame_type == "first_frame":
+                prompt = f"""
+Анализируй этот кадр-обложку видео "{video_info.get('title', 'Без названия')}".
 
+ЗАДАЧА: Детально опиши что происходит на этом кадре. Это начальный кадр видео.
+
+Описание видео: {video_info.get('description', 'Нет описания')}
+Длительность: {video_info.get('duration', 0)} секунд
+
+АНАЛИЗИРУЙ:
+1. Что изображено на кадре
+2. Какие объекты, люди, инструменты видны
+3. Обстановка и окружение
+4. Текст, если есть
+5. Предположение о содержании видео на основе этого кадра
+
+Отвечай подробно на русском языке.
+"""
+            else:
+                prompt = f"""
+Анализируй этот превью-кадр из видео "{video_info.get('title', 'Без названия')}".
+
+ЗАДАЧА: Детально опиши что происходит на этом кадре из середины/конца видео.
+
+Описание видео: {video_info.get('description', 'Нет описания')}
+Длительность: {video_info.get('duration', 0)} секунд
+
+АНАЛИЗИРУЙ:
+1. Что изображено на кадре
+2. Какие действия происходят
+3. Изменения по сравнению с возможным началом
+4. Детали и объекты
+5. Текст или интерфейс, если видны
+
+Отвечай подробно на русском языке.
+"""
+            
+            response = self.model.generate_content([prompt, image_part])
+            return response.text
+            
+        except Exception as e:
+            logger.error(f"Ошибка анализа кадра {image_path}: {e}")
+            return f"Ошибка анализа: {str(e)}"
+            
     def load_file_as_part(self, file_path: str, attachment_type: str) -> Optional[Part]:
         """Загрузка файла как Part для Vertex AI"""
         try:
@@ -321,8 +344,8 @@ class AttachmentAnalyzer:
                     result['error'] = f"Файл не найден: {file_path}"
                     
             elif attachment_type == 'video':
-                # Для видео: скачиваем, обрезаем и анализируем через Gemini
-                result['analysis'] = self.analyze_video_content(file_path, metadata)
+                # Для видео: анализируем превью-кадры через Gemini
+                result['analysis'] = self.analyze_video_frames(file_path, metadata)
                     
             elif attachment_type in ['wall', 'audio']:
                 # Для этих типов анализируем метаданные
@@ -345,135 +368,88 @@ class AttachmentAnalyzer:
                 'error': str(e)
             }
             
-    def get_video_url_via_api(self, video_id: int, owner_id: int, access_key: str) -> Optional[str]:
-        """Получение URL видео через VK API"""
-        try:
-            # Попробуем получить URL через прямой запрос к VK API
-            # Используем публичные методы VK API
-            api_url = "https://api.vk.com/method/video.get"
-            params = {
-                'videos': f"{owner_id}_{video_id}_{access_key}",
-                'v': '5.131',
-                'access_token': 'service'  # Попробуем без токена для публичных видео
-            }
-            
-            response = requests.get(api_url, params=params, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if 'response' in data and 'items' in data['response'] and data['response']['items']:
-                    video_data = data['response']['items'][0]
-                    if 'files' in video_data:
-                        files = video_data['files']
-                        for quality in ['mp4_720', 'mp4_480', 'mp4_360', 'mp4_240']:
-                            if quality in files:
-                                return files[quality]
-            
-            logger.warning("Не удалось получить URL видео через API")
-            return None
-            
-        except Exception as e:
-            logger.error(f"Ошибка получения URL через API: {e}")
-            return None
-
-    def analyze_video_content(self, json_file_path: str, metadata: Dict) -> str:
-        """Полный анализ видео через скачивание и анализ Gemini"""
+    def analyze_video_frames(self, json_file_path: str, metadata: Dict) -> str:
+        """Анализ видео через превью-кадры"""
         try:
             # Получаем данные о видео из JSON файла
             original_data = metadata.get('original_data', {})
-            video_url = None
             
             # Проверяем статус обработки видео
             processing = original_data.get('processing', 0)
             if processing == 1:
-                logger.warning("Видео еще обрабатывается на VK, анализируем метаданные")
+                logger.warning("Видео еще обрабатывается на VK, анализируем только метаданные")
                 return f"⚠️ ВИДЕО В ОБРАБОТКЕ\n\n{self.analyze_metadata(metadata, 'video')}"
             
-            # Ищем URL видео в данных
-            if 'files' in original_data:
-                files = original_data['files']
-                # Берем видео наилучшего качества
-                for quality in ['mp4_720', 'mp4_480', 'mp4_360', 'mp4_240']:
-                    if quality in files:
-                        video_url = files[quality]
-                        break
+            # Создаем результат анализа
+            video_id = f"{original_data.get('owner_id', '')}_{original_data.get('id', '')}"
+            result = {
+                "video_id": video_id,
+                "title": original_data.get('title', 'Без названия'),
+                "description": original_data.get('description', ''),
+                "duration": original_data.get('duration', 0),
+                "views": original_data.get('views', 0),
+                "frames_analyzed": [],
+                "analysis_summary": "",
+                "timestamp": datetime.now().isoformat()
+            }
             
-            # Альтернативные поля для URL видео
-            if not video_url:
-                for field in ['player', 'external', 'mp4_720', 'mp4_480', 'mp4_360', 'mp4_240']:
-                    if field in original_data and original_data[field]:
-                        video_url = original_data[field]
-                        break
+            frames_analyzed = 0
             
-            # Попробуем получить URL через VK API
-            if not video_url:
-                video_id = original_data.get('id')
-                owner_id = original_data.get('owner_id')
-                access_key = original_data.get('access_key')
-                
-                if video_id and owner_id and access_key:
-                    logger.info(f"Пытаемся получить URL видео через API: {owner_id}_{video_id}")
-                    video_url = self.get_video_url_via_api(video_id, owner_id, access_key)
+            # Анализируем обложку (first_frame)
+            first_frame_url = original_data.get('first_frame_800') or original_data.get('first_frame_320')
+            if first_frame_url:
+                frame_file = f"first_frame_{video_id.replace('_', '-')}.jpg"
+                frame_path = self.download_frame(first_frame_url, frame_file)
+                if frame_path:
+                    analysis = self.analyze_frame_with_gemini(frame_path, "first_frame", original_data)
+                    result["frames_analyzed"].append({
+                        "type": "first_frame",
+                        "file": frame_file,
+                        "analysis": analysis
+                    })
+                    frames_analyzed += 1
+                    
+            # Анализируем превью-кадры
+            for i, quality in enumerate(['photo_800', 'photo_320', 'photo_130']):
+                if quality in original_data and original_data[quality]:
+                    frame_file = f"preview_{i+1}_{video_id.replace('_', '-')}.jpg"
+                    frame_path = self.download_frame(original_data[quality], frame_file)
+                    if frame_path:
+                        analysis = self.analyze_frame_with_gemini(frame_path, "preview", original_data)
+                        result["frames_analyzed"].append({
+                            "type": f"preview_{i+1}",
+                            "file": frame_file,
+                            "analysis": analysis
+                        })
+                        frames_analyzed += 1
                         
-            if not video_url:
-                logger.error("URL видео не найден - ПОЛНЫЙ АНАЛИЗ ВИДЕО НЕВОЗМОЖЕН")
-                return f"❌ АНАЛИЗ ВИДЕО НЕ ВЫПОЛНЕН\n\nПричина: URL видео не найден в метаданных и не получен через API\n\n{self.analyze_metadata(metadata, 'video')}"
-            
-            # Создаем путь для скачанного видео
-            video_filename = os.path.basename(json_file_path).replace('.json', '.mp4')
-            video_path = os.path.join(self.download_dir, video_filename)
-            
-            logger.info(f"Начинаем скачивание видео: {video_url}")
-            
-            # Скачиваем и обрезаем видео до 2 минут
-            if self.download_and_trim_video(video_url, video_path, duration_seconds=120):
-                logger.info(f"Видео готово для анализа: {video_path}")
+            # Создаем общую сводку
+            if frames_analyzed > 0:
+                summary_parts = []
+                summary_parts.append(f"📹 ВИДЕО: {result['title']}")
+                summary_parts.append(f"⏱️ Длительность: {result['duration']} сек")
+                summary_parts.append(f"👀 Просмотры: {result['views']}")
+                summary_parts.append(f"🎬 Проанализировано кадров: {frames_analyzed}")
                 
-                # Анализируем видео через Gemini
-                part = self.load_file_as_part(video_path, 'video')
-                if part:
-                    # Расширенный промпт для видео
-                    video_prompt = """Проанализируй это видео максимально подробно:
-                    
-                    1. СОДЕРЖАНИЕ: Что происходит в видео? Кто участвует? О чем говорят?
-                    2. ВИЗУАЛЬНОЕ: Опиши обстановку, объекты, действия
-                    3. АУДИО: Если есть речь - транскрибируй ключевые фразы
-                    4. ТЕКСТ НА ЭКРАНЕ: Если есть любой текст - извлеки его ПОЛНОСТЬЮ
-                    5. КОНТЕКСТ: Какая тема/жанр видео? Образовательное, развлекательное, музыкальное?
-                    6. ЭМОЦИИ: Какое настроение передает видео?
-                    
-                    Отвечай на русском языке максимально подробно."""
-                    
-                    response = self.model.generate_content([video_prompt, part])
-                    
-                    # Добавляем метаданные к анализу
-                    title = original_data.get('title', 'Без названия')
-                    description = original_data.get('description', '')
-                    duration = original_data.get('duration', 0)
-                    views = original_data.get('views', 0)
-                    
-                    full_analysis = f"🎥 ВИДЕО АНАЛИЗ: {title}\n\n"
-                    full_analysis += f"📊 МЕТАДАННЫЕ:\n"
-                    if description:
-                        full_analysis += f"   Описание: {description}\n"
-                    if duration:
-                        full_analysis += f"   Продолжительность: {duration} секунд\n"
-                    if views:
-                        full_analysis += f"   Просмотры: {views}\n"
-                    
-                    full_analysis += f"\n🤖 АНАЛИЗ СОДЕРЖИМОГО:\n{response.text}"
-                    
-                    logger.info(f"Видео успешно проанализировано: {video_path}")
-                    return full_analysis
-                else:
-                    logger.error("Не удалось загрузить видео для анализа")
-                    return self.analyze_metadata(metadata, 'video')
+                for frame in result["frames_analyzed"]:
+                    summary_parts.append(f"\n--- {frame['type'].upper()} ---")
+                    # Берем первые 500 символов анализа для сводки
+                    analysis_preview = frame['analysis'][:500] + "..." if len(frame['analysis']) > 500 else frame['analysis']
+                    summary_parts.append(analysis_preview)
+                
+                result["analysis_summary"] = "\n".join(summary_parts)
+                
+                logger.info(f"Видео успешно проанализировано: {frames_analyzed} кадров")
+                return result["analysis_summary"]
             else:
-                logger.error("Не удалось скачать видео")
-                return self.analyze_metadata(metadata, 'video')
+                logger.error("Не удалось скачать ни одного кадра для анализа")
+                return f"❌ АНАЛИЗ ПРЕВЬЮ-КАДРОВ НЕ ВЫПОЛНЕН\n\nПричина: Не найдены URL кадров в метаданных\n\n{self.analyze_metadata(metadata, 'video')}"
                 
         except Exception as e:
             logger.error(f"Ошибка анализа видео: {e}")
             return f"Ошибка анализа видео: {str(e)}\n\n{self.analyze_metadata(metadata, 'video')}"
+
+
 
     def analyze_metadata(self, metadata: Dict, attachment_type: str) -> str:
         """Анализ метаданных для типов без прямого файла"""

@@ -33,19 +33,18 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class AttachmentAnalyzer:
-    def __init__(self):
-        """Инициализация анализатора вложений"""
-        self.project_id = None
-        self.location = "us-central1"  # Попробуем другие регионы если не работает
-        self.model_name = "gemini-2.5-flash"  # Актуальная модель Gemini 2.5
-        self.model = None
+    def __init__(self, model: Optional[GenerativeModel] = None):
+        """
+        Инициализация анализатора вложений.
+        Принимает уже инициализированную модель Vertex AI.
+        """
+        self.model = model
         
         # Папки для работы (используются только для локальных тестов, не для main.py)
-        self.download_dir = "downloaded_attachments"
         self.results_dir = "analysis_results"
         self.ensure_results_directory()
         
-        # Настройки безопасности для модели
+        # Настройки безопасности для модели (остаются здесь, т.к. могут быть специфичны для анализатора)
         self.safety_settings = [
             SafetySetting(
                 category=HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -106,101 +105,6 @@ class AttachmentAnalyzer:
         if not os.path.exists(self.results_dir):
             os.makedirs(self.results_dir)
             logger.info(f"Создана папка для результатов: {self.results_dir}")
-            
-    def load_vertex_ai_credentials(self):
-        """Загрузка ключей Vertex AI"""
-        try:
-            # Ищем JSON файл с ключами в текущей папке
-            json_files = [f for f in os.listdir('.') if f.endswith('.json') and 'key' in f.lower()]
-            
-            if not json_files:
-                print("\n" + "="*60)
-                print("НАСТРОЙКА VERTEX AI КЛЮЧЕЙ")
-                print("="*60)
-                print("Необходимо разместить JSON файл с ключами от Google Cloud.")
-                print("Варианты размещения:")
-                print("1. Поместите JSON файл в текущую папку (рядом с этим скриптом)")
-                print("2. Назовите файл так, чтобы в имени было слово 'key'")
-                print("   Например: 'my-project-key.json' или 'vertex-ai-key.json'")
-                print("\nИли установите переменную окружения GOOGLE_APPLICATION_CREDENTIALS")
-                print("="*60)
-                raise ValueError("JSON файл с ключами Vertex AI не найден")
-            
-            # Берем первый найденный файл
-            credentials_path = json_files[0]
-            logger.info(f"Найден файл ключей: {credentials_path}")
-            
-            # Загружаем ключи
-            credentials = service_account.Credentials.from_service_account_file(credentials_path)
-            
-            # Читаем project_id из файла
-            with open(credentials_path, 'r') as f:
-                key_data = json.load(f)
-                self.project_id = key_data.get('project_id')
-                
-            if not self.project_id:
-                raise ValueError("project_id не найден в JSON файле")
-                
-            logger.info(f"Vertex AI ключи загружены. Проект: {self.project_id}")
-            return credentials
-            
-        except Exception as e:
-            logger.error(f"Ошибка загрузки ключей Vertex AI: {e}")
-            raise
-            
-    def initialize_vertex_ai(self):
-        """Инициализация Vertex AI"""
-        try:
-            credentials = self.load_vertex_ai_credentials()
-            
-            print(f"\n🔧 ДИАГНОСТИКА VERTEX AI:")
-            print(f"   Проект: {self.project_id}")
-            print(f"   Регион: {self.location}")
-            print(f"   Модель: {self.model_name}")
-            
-            # Инициализация Vertex AI
-            vertexai.init(
-                project=self.project_id,
-                location=self.location,
-                credentials=credentials
-            )
-            
-            # Создаем модель
-            self.model = GenerativeModel(
-                model_name=self.model_name,
-                safety_settings=self.safety_settings
-            )
-            
-            logger.info(f"Vertex AI инициализирован. Модель: {self.model_name}")
-            print(f"   ✅ Инициализация успешна")
-            
-        except Exception as e:
-            logger.error(f"Ошибка инициализации Vertex AI: {e}")
-            print(f"   ❌ Ошибка: {e}")
-            
-            # Пробуем другие регионы
-            alternative_locations = ["europe-west1", "asia-northeast1", "us-east1"]
-            for alt_location in alternative_locations:
-                try:
-                    print(f"\n🔄 Пробуем регион: {alt_location}")
-                    self.location = alt_location
-                    vertexai.init(
-                        project=self.project_id,
-                        location=self.location,
-                        credentials=credentials
-                    )
-                    self.model = GenerativeModel(
-                        model_name=self.model_name,
-                        safety_settings=self.safety_settings
-                    )
-                    print(f"   ✅ Регион {alt_location} работает!")
-                    logger.info(f"Vertex AI работает в регионе: {alt_location}")
-                    return
-                except Exception as alt_e:
-                    print(f"   ❌ Регион {alt_location} не работает: {alt_e}")
-                    continue
-                    
-            raise Exception("Все регионы Vertex AI недоступны")
             
     def download_frame(self, url: str, filename: str) -> Optional[str]:
         """Скачивание кадра видео по URL"""
@@ -796,7 +700,7 @@ class AttachmentAnalyzer:
             logger.info("Запуск анализатора вложений")
             
             # Инициализация
-            self.initialize_vertex_ai()
+            # self.initialize_vertex_ai() # Удалено, модель передается в __init__
             
             # Анализ всех вложений
             self.analyze_all_attachments()

@@ -457,20 +457,19 @@ try:
     except Exception as e:
         logging.error(f"Ошибка инициализации сервиса напоминаний: {e}")
     
-    # Инициализация анализатора вложений (Vertex AI уже инициализирован выше)
+    # Инициализация анализатора вложений
     try:
-        logging.info("Начинаю инициализацию AttachmentAnalyzer...")
-        attachment_analyzer = AttachmentAnalyzer()
-        attachment_analyzer.initialize_vertex_ai() # <--- ДОБАВЛЕН КЛЮЧЕВОЙ ВЫЗОВ
-        logging.info("AttachmentAnalyzer создан и инициализирован.")
+        logging.info("Инициализация AttachmentAnalyzer...")
+        # Передаем уже готовую и рабочую модель из app.model
+        attachment_analyzer = AttachmentAnalyzer(model=app.model)
         
-        if hasattr(attachment_analyzer, 'model') and attachment_analyzer.model is not None:
-            logging.info("Анализатор вложений успешно настроен и готов к работе.")
+        if attachment_analyzer.model is not None:
+            logging.info("AttachmentAnalyzer успешно инициализирован с рабочей моделью из main.py.")
         else:
-            logging.error("ПРОБЛЕМА: Анализатор инициализирован, но его модель (model) не доступна.")
-            attachment_analyzer = None
+            logging.error("ПРОБЛЕМА: Не удалось передать модель в AttachmentAnalyzer, app.model is None.")
+            attachment_analyzer = None # Отключаем анализатор, если модель не передалась
     except Exception as e:
-        logging.error(f"КРИТИЧЕСКАЯ ОШИБКА инициализации AttachmentAnalyzer: {e}", exc_info=True)
+        logging.error(f"КРИТИЧЕСКАЯ ОШИБКА при создании AttachmentAnalyzer: {e}", exc_info=True)
         attachment_analyzer = None
 except Exception as e:
     logging.critical(f"КРИТИЧЕСКАЯ ОШИБКА: Не удалось инициализировать Vertex AI. Приложение не сможет работать. Ошибка: {e}")

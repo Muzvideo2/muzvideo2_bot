@@ -459,7 +459,6 @@ try:
     
     # Инициализация анализатора вложений (Vertex AI уже инициализирован выше)
     try:
-        global attachment_analyzer
         attachment_analyzer = AttachmentAnalyzer()
         # Vertex AI уже инициализирован выше - не дублируем инициализацию
         if hasattr(attachment_analyzer, 'model') and attachment_analyzer.model is not None:

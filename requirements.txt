@@ -1,5 +1,5 @@
 requests
-psycopg2
+psycopg2-binary
 vk_api
 Flask
 openpyxl

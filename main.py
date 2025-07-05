@@ -461,17 +461,13 @@ try:
     try:
         logging.info("Начинаю инициализацию AttachmentAnalyzer...")
         attachment_analyzer = AttachmentAnalyzer()
-        logging.info("AttachmentAnalyzer создан успешно")
+        attachment_analyzer.initialize_vertex_ai() # <--- ДОБАВЛЕН КЛЮЧЕВОЙ ВЫЗОВ
+        logging.info("AttachmentAnalyzer создан и инициализирован.")
         
-        if hasattr(attachment_analyzer, 'model'):
-            logging.info(f"attachment_analyzer.model = {attachment_analyzer.model}")
-            if attachment_analyzer.model is not None:
-                logging.info("Анализатор вложений успешно инициализирован.")
-            else:
-                logging.error("ПРОБЛЕМА: attachment_analyzer.model = None (Vertex AI не готов)")
-                attachment_analyzer = None
+        if hasattr(attachment_analyzer, 'model') and attachment_analyzer.model is not None:
+            logging.info("Анализатор вложений успешно настроен и готов к работе.")
         else:
-            logging.error("ПРОБЛЕМА: attachment_analyzer не имеет атрибута 'model'")
+            logging.error("ПРОБЛЕМА: Анализатор инициализирован, но его модель (model) не доступна.")
             attachment_analyzer = None
     except Exception as e:
         logging.error(f"КРИТИЧЕСКАЯ ОШИБКА инициализации AttachmentAnalyzer: {e}", exc_info=True)

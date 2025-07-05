@@ -1,0 +1,12 @@
+{
+  "file": "downloaded_attachments\\voice_1.mp3",
+  "type": "audio_message",
+  "timestamp": "2025-07-05T11:23:06.704723",
+  "metadata": {
+    "type": "audio_message",
+    "local_file": "downloaded_attachments\\voice_1.mp3",
+    "timestamp": "2025-07-05T11:21:36.808361"
+  },
+  "analysis": "Вот транскрипция голосового сообщения:\n\nА это третье тестовое голосовое сообщение, в котором я хочу тебе сообщить, что вчера мы кушали борщ.",
+  "error": null
+}

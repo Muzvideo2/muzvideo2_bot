@@ -1,0 +1,12 @@
+{
+  "file": "downloaded_attachments\\voice_3.mp3",
+  "type": "audio_message",
+  "timestamp": "2025-07-05T11:23:10.399701",
+  "metadata": {
+    "type": "audio_message",
+    "local_file": "downloaded_attachments\\voice_3.mp3",
+    "timestamp": "2025-07-05T11:21:36.808425"
+  },
+  "analysis": "Вот тестовое голосовое сообщение, в котором я сообщаю, что отправил репост тебе из своей группы Сибирские аквариумисты. Эту группу я веду уже пару лет, и получается, что я не только занимаюсь музыкой, но ещё и аквариумистикой.",
+  "error": null
+}

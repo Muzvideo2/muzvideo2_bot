@@ -1,0 +1,27 @@
+{
+  "file": "downloaded_attachments\\audio_2.json",
+  "type": "audio",
+  "timestamp": "2025-07-05T11:23:06.702938",
+  "metadata": {
+    "type": "audio",
+    "local_file": "downloaded_attachments\\audio_2.json",
+    "timestamp": "2025-07-05T11:21:36.807278",
+    "original_data": {
+      "artist": "С. Филимонов",
+      "id": 456239292,
+      "owner_id": 78671089,
+      "title": "Мелодия Юлии Тимофеевой",
+      "duration": 65,
+      "is_explicit": false,
+      "url": "https://cs9-8v4.vkuseraudio.net/s/v1/acmp/WXGTMEfYnhJRtsppcT6DPgS3RdWeGIwmkXJKk2f_SrjxIK8mo-qZ35k-PSKDzeLfoMgrjgaoO6HlZp9usvYzgInFf12mKOtNPuGLnCeMOBZOVHkuNYMBYemABsp98Ev67CRh_B1EgxrIb24E_l_Kh0LBsF9F44YVWyijTFvx0DkLzm4NAA.mp3?siren=1",
+      "date": 1707321072,
+      "like": true,
+      "genre_id": 1001,
+      "short_videos_allowed": false,
+      "stories_allowed": false,
+      "stories_cover_allowed": false
+    }
+  },
+  "analysis": "Музыка: С. Филимонов - Мелодия Юлии Тимофеевой\nПродолжительность: 65 секунд",
+  "error": null
+}

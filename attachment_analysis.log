@@ -1,0 +1,603 @@
+2025-07-05 10:26:24,519 - __main__ - INFO - Создана папка для результатов: analysis_results
+2025-07-05 10:26:24,520 - __main__ - INFO - Запуск анализатора вложений
+2025-07-05 10:26:24,520 - __main__ - INFO - Найден файл ключей: key.json
+2025-07-05 10:26:24,522 - __main__ - INFO - Vertex AI ключи загружены. Проект: muzvideo2
+2025-07-05 10:26:24,523 - __main__ - INFO - Vertex AI инициализирован. Модель: gemini-2.0-flash-exp
+2025-07-05 10:26:24,523 - __main__ - INFO - Начинаем анализ всех вложений...
+2025-07-05 10:26:24,527 - __main__ - INFO - Анализируем audio: 3 файлов
+2025-07-05 10:26:24,527 - __main__ - INFO - Прогресс: 1/14
+2025-07-05 10:26:24,527 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio\audio_1_121837684_4233195.json
+2025-07-05 10:26:24,528 - __main__ - INFO - Прогресс: 2/14
+2025-07-05 10:26:24,528 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio\audio_2_121837684_4233195.json
+2025-07-05 10:26:24,529 - __main__ - INFO - Прогресс: 3/14
+2025-07-05 10:26:24,529 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio\audio_3_121837684_4233195.json
+2025-07-05 10:26:24,530 - __main__ - INFO - Анализируем audio_message: 0 файлов
+2025-07-05 10:26:24,530 - __main__ - INFO - Анализируем photo: 3 файлов
+2025-07-05 10:26:24,530 - __main__ - INFO - Прогресс: 4/14
+2025-07-05 10:26:24,530 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo\photo_1_121837684_5024252.jpg
+2025-07-05 10:26:24,574 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo\photo_1_121837684_5024252.jpg (image/jpeg)
+2025-07-05 10:26:26,363 - __main__ - ERROR - Ошибка анализа downloaded_attachments\photo\photo_1_121837684_5024252.jpg: 403 This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry. [reason: "BILLING_DISABLED"
+domain: "googleapis.com"
+metadata {
+  key: "service"
+  value: "aiplatform.googleapis.com"
+}
+metadata {
+  key: "containerInfo"
+  value: "muzvideo2"
+}
+metadata {
+  key: "consumer"
+  value: "projects/muzvideo2"
+}
+, locale: "en-US"
+message: "This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry."
+, links {
+  description: "Google developers console billing"
+  url: "https://console.developers.google.com/billing/enable?project=muzvideo2"
+}
+]
+2025-07-05 10:26:26,365 - __main__ - INFO - Прогресс: 5/14
+2025-07-05 10:26:26,372 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo\photo_2_121837684_4994211.jpg
+2025-07-05 10:26:26,377 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo\photo_2_121837684_4994211.jpg (image/jpeg)
+2025-07-05 10:26:27,184 - __main__ - ERROR - Ошибка анализа downloaded_attachments\photo\photo_2_121837684_4994211.jpg: 403 This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry. [reason: "BILLING_DISABLED"
+domain: "googleapis.com"
+metadata {
+  key: "service"
+  value: "aiplatform.googleapis.com"
+}
+metadata {
+  key: "containerInfo"
+  value: "muzvideo2"
+}
+metadata {
+  key: "consumer"
+  value: "projects/muzvideo2"
+}
+, locale: "en-US"
+message: "This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry."
+, links {
+  description: "Google developers console billing"
+  url: "https://console.developers.google.com/billing/enable?project=muzvideo2"
+}
+]
+2025-07-05 10:26:27,187 - __main__ - INFO - Прогресс: 6/14
+2025-07-05 10:26:27,199 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo\photo_3_121837684_4807428.jpg
+2025-07-05 10:26:27,200 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo\photo_3_121837684_4807428.jpg (image/jpeg)
+2025-07-05 10:26:27,817 - __main__ - ERROR - Ошибка анализа downloaded_attachments\photo\photo_3_121837684_4807428.jpg: 403 This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry. [reason: "BILLING_DISABLED"
+domain: "googleapis.com"
+metadata {
+  key: "service"
+  value: "aiplatform.googleapis.com"
+}
+metadata {
+  key: "containerInfo"
+  value: "muzvideo2"
+}
+metadata {
+  key: "consumer"
+  value: "projects/muzvideo2"
+}
+, locale: "en-US"
+message: "This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry."
+, links {
+  description: "Google developers console billing"
+  url: "https://console.developers.google.com/billing/enable?project=muzvideo2"
+}
+]
+2025-07-05 10:26:27,819 - __main__ - INFO - Анализируем sticker: 3 файлов
+2025-07-05 10:26:27,824 - __main__ - INFO - Прогресс: 7/14
+2025-07-05 10:26:27,825 - __main__ - INFO - Анализируем sticker: downloaded_attachments\sticker\sticker_1_585701622_5069298.png
+2025-07-05 10:26:27,826 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\sticker\sticker_1_585701622_5069298.png (image/png)
+2025-07-05 10:26:28,068 - __main__ - ERROR - Ошибка анализа downloaded_attachments\sticker\sticker_1_585701622_5069298.png: 403 This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry. [reason: "BILLING_DISABLED"
+domain: "googleapis.com"
+metadata {
+  key: "service"
+  value: "aiplatform.googleapis.com"
+}
+metadata {
+  key: "containerInfo"
+  value: "muzvideo2"
+}
+metadata {
+  key: "consumer"
+  value: "projects/muzvideo2"
+}
+, locale: "en-US"
+message: "This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry."
+, links {
+  description: "Google developers console billing"
+  url: "https://console.developers.google.com/billing/enable?project=muzvideo2"
+}
+]
+2025-07-05 10:26:28,071 - __main__ - INFO - Прогресс: 8/14
+2025-07-05 10:26:28,087 - __main__ - INFO - Анализируем sticker: downloaded_attachments\sticker\sticker_2_351524697_5069094.png
+2025-07-05 10:26:28,089 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\sticker\sticker_2_351524697_5069094.png (image/png)
+2025-07-05 10:26:28,507 - __main__ - ERROR - Ошибка анализа downloaded_attachments\sticker\sticker_2_351524697_5069094.png: 403 This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry. [reason: "BILLING_DISABLED"
+domain: "googleapis.com"
+metadata {
+  key: "service"
+  value: "aiplatform.googleapis.com"
+}
+metadata {
+  key: "containerInfo"
+  value: "muzvideo2"
+}
+metadata {
+  key: "consumer"
+  value: "projects/muzvideo2"
+}
+, locale: "en-US"
+message: "This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry."
+, links {
+  description: "Google developers console billing"
+  url: "https://console.developers.google.com/billing/enable?project=muzvideo2"
+}
+]
+2025-07-05 10:26:28,508 - __main__ - INFO - Прогресс: 9/14
+2025-07-05 10:26:28,513 - __main__ - INFO - Анализируем sticker: downloaded_attachments\sticker\sticker_3_173543698_5069118.png
+2025-07-05 10:26:28,514 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\sticker\sticker_3_173543698_5069118.png (image/png)
+2025-07-05 10:26:28,775 - __main__ - ERROR - Ошибка анализа downloaded_attachments\sticker\sticker_3_173543698_5069118.png: 403 This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry. [reason: "BILLING_DISABLED"
+domain: "googleapis.com"
+metadata {
+  key: "service"
+  value: "aiplatform.googleapis.com"
+}
+metadata {
+  key: "containerInfo"
+  value: "muzvideo2"
+}
+metadata {
+  key: "consumer"
+  value: "projects/muzvideo2"
+}
+, locale: "en-US"
+message: "This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry."
+, links {
+  description: "Google developers console billing"
+  url: "https://console.developers.google.com/billing/enable?project=muzvideo2"
+}
+]
+2025-07-05 10:26:28,778 - __main__ - INFO - Анализируем video: 3 файлов
+2025-07-05 10:26:28,794 - __main__ - INFO - Прогресс: 10/14
+2025-07-05 10:26:28,795 - __main__ - INFO - Анализируем video: downloaded_attachments\video\video_1_121837684_4807428.json
+2025-07-05 10:26:28,801 - __main__ - INFO - Прогресс: 11/14
+2025-07-05 10:26:28,804 - __main__ - INFO - Анализируем video: downloaded_attachments\video\video_2_121837684_4523164.json
+2025-07-05 10:26:28,807 - __main__ - INFO - Прогресс: 12/14
+2025-07-05 10:26:28,809 - __main__ - INFO - Анализируем video: downloaded_attachments\video\video_3_121837684_4483432.json
+2025-07-05 10:26:28,816 - __main__ - INFO - Анализируем wall: 2 файлов
+2025-07-05 10:26:28,816 - __main__ - INFO - Прогресс: 13/14
+2025-07-05 10:26:28,817 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall\wall_1_26589892_2440306.json
+2025-07-05 10:26:28,821 - __main__ - INFO - Прогресс: 14/14
+2025-07-05 10:26:28,821 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall\wall_2_96101696_5069400.json
+2025-07-05 10:26:28,828 - __main__ - INFO - Финальный отчет сохранен: analysis_results\final_analysis_report.json
+2025-07-05 10:26:28,851 - __main__ - INFO - Анализ завершен
+2025-07-05 10:26:28,857 - __main__ - INFO - Анализ завершен успешно
+2025-07-05 10:34:19,239 - __main__ - INFO - Создана папка для результатов: analysis_results
+2025-07-05 10:34:19,239 - __main__ - INFO - Запуск анализатора вложений
+2025-07-05 10:34:19,240 - __main__ - INFO - Найден файл ключей: key.json
+2025-07-05 10:34:19,242 - __main__ - INFO - Vertex AI ключи загружены. Проект: muzvideo2
+2025-07-05 10:34:19,243 - __main__ - INFO - Vertex AI инициализирован. Модель: gemini-1.5-flash
+2025-07-05 10:34:19,243 - __main__ - INFO - Начинаем анализ всех вложений...
+2025-07-05 10:34:19,245 - __main__ - INFO - Финальный отчет сохранен: analysis_results\final_analysis_report.json
+2025-07-05 10:34:19,246 - __main__ - INFO - Анализ завершен
+2025-07-05 10:34:19,246 - __main__ - INFO - Анализ завершен успешно
+2025-07-05 10:35:19,972 - __main__ - INFO - Запуск анализатора вложений
+2025-07-05 10:35:19,973 - __main__ - INFO - Найден файл ключей: key.json
+2025-07-05 10:35:19,975 - __main__ - INFO - Vertex AI ключи загружены. Проект: muzvideo2
+2025-07-05 10:35:19,975 - __main__ - INFO - Vertex AI инициализирован. Модель: gemini-1.5-flash
+2025-07-05 10:35:19,976 - __main__ - INFO - Начинаем анализ всех вложений...
+2025-07-05 10:35:19,978 - __main__ - INFO - Найдено photo: 3 файлов
+2025-07-05 10:35:19,979 - __main__ - INFO - Найдено video: 3 файлов
+2025-07-05 10:35:19,979 - __main__ - INFO - Найдено wall: 3 файлов
+2025-07-05 10:35:19,979 - __main__ - INFO - Найдено audio: 3 файлов
+2025-07-05 10:35:19,979 - __main__ - INFO - Найдено audio_message: 3 файлов
+2025-07-05 10:35:19,979 - __main__ - INFO - Анализируем photo: 3 файлов
+2025-07-05 10:35:19,980 - __main__ - INFO - Прогресс: 1/15
+2025-07-05 10:35:19,980 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_1.jpg
+2025-07-05 10:35:20,028 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_1.jpg (image/jpeg)
+2025-07-05 10:35:21,524 - __main__ - ERROR - Ошибка анализа downloaded_attachments\photo_1.jpg: 403 This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry. [reason: "BILLING_DISABLED"
+domain: "googleapis.com"
+metadata {
+  key: "service"
+  value: "aiplatform.googleapis.com"
+}
+metadata {
+  key: "containerInfo"
+  value: "muzvideo2"
+}
+metadata {
+  key: "consumer"
+  value: "projects/muzvideo2"
+}
+, locale: "en-US"
+message: "This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry."
+, links {
+  description: "Google developers console billing"
+  url: "https://console.developers.google.com/billing/enable?project=muzvideo2"
+}
+]
+2025-07-05 10:35:21,526 - __main__ - INFO - Прогресс: 2/15
+2025-07-05 10:35:21,526 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_2.jpg
+2025-07-05 10:35:21,527 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_2.jpg (image/jpeg)
+2025-07-05 10:35:22,068 - __main__ - ERROR - Ошибка анализа downloaded_attachments\photo_2.jpg: 403 This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry. [reason: "BILLING_DISABLED"
+domain: "googleapis.com"
+metadata {
+  key: "service"
+  value: "aiplatform.googleapis.com"
+}
+metadata {
+  key: "containerInfo"
+  value: "muzvideo2"
+}
+metadata {
+  key: "consumer"
+  value: "projects/muzvideo2"
+}
+, locale: "en-US"
+message: "This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry."
+, links {
+  description: "Google developers console billing"
+  url: "https://console.developers.google.com/billing/enable?project=muzvideo2"
+}
+]
+2025-07-05 10:35:22,074 - __main__ - INFO - Прогресс: 3/15
+2025-07-05 10:35:22,075 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_3.jpg
+2025-07-05 10:35:22,078 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_3.jpg (image/jpeg)
+2025-07-05 10:35:22,544 - __main__ - ERROR - Ошибка анализа downloaded_attachments\photo_3.jpg: 403 This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry. [reason: "BILLING_DISABLED"
+domain: "googleapis.com"
+metadata {
+  key: "service"
+  value: "aiplatform.googleapis.com"
+}
+metadata {
+  key: "containerInfo"
+  value: "muzvideo2"
+}
+metadata {
+  key: "consumer"
+  value: "projects/muzvideo2"
+}
+, locale: "en-US"
+message: "This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry."
+, links {
+  description: "Google developers console billing"
+  url: "https://console.developers.google.com/billing/enable?project=muzvideo2"
+}
+]
+2025-07-05 10:35:22,551 - __main__ - INFO - Анализируем video: 3 файлов
+2025-07-05 10:35:22,551 - __main__ - INFO - Прогресс: 4/15
+2025-07-05 10:35:22,552 - __main__ - INFO - Анализируем video: downloaded_attachments\video_1.json
+2025-07-05 10:35:22,554 - __main__ - INFO - Прогресс: 5/15
+2025-07-05 10:35:22,555 - __main__ - INFO - Анализируем video: downloaded_attachments\video_2.json
+2025-07-05 10:35:22,557 - __main__ - INFO - Прогресс: 6/15
+2025-07-05 10:35:22,557 - __main__ - INFO - Анализируем video: downloaded_attachments\video_3.json
+2025-07-05 10:35:22,559 - __main__ - INFO - Анализируем sticker: 0 файлов
+2025-07-05 10:35:22,560 - __main__ - INFO - Анализируем wall: 3 файлов
+2025-07-05 10:35:22,561 - __main__ - INFO - Прогресс: 7/15
+2025-07-05 10:35:22,561 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_1.json
+2025-07-05 10:35:22,564 - __main__ - INFO - Прогресс: 8/15
+2025-07-05 10:35:22,564 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_2.json
+2025-07-05 10:35:22,569 - __main__ - INFO - Прогресс: 9/15
+2025-07-05 10:35:22,569 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_3.json
+2025-07-05 10:35:22,572 - __main__ - INFO - Анализируем audio: 3 файлов
+2025-07-05 10:35:22,572 - __main__ - INFO - Прогресс: 10/15
+2025-07-05 10:35:22,573 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_1.json
+2025-07-05 10:35:22,575 - __main__ - INFO - Прогресс: 11/15
+2025-07-05 10:35:22,576 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_2.json
+2025-07-05 10:35:22,577 - __main__ - INFO - Прогресс: 12/15
+2025-07-05 10:35:22,577 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_3.json
+2025-07-05 10:35:22,578 - __main__ - INFO - Анализируем audio_message: 3 файлов
+2025-07-05 10:35:22,579 - __main__ - INFO - Прогресс: 13/15
+2025-07-05 10:35:22,579 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_1.mp3
+2025-07-05 10:35:22,580 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_1.mp3 (audio/mpeg)
+2025-07-05 10:35:23,002 - __main__ - ERROR - Ошибка анализа downloaded_attachments\voice_1.mp3: 403 This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry. [reason: "BILLING_DISABLED"
+domain: "googleapis.com"
+metadata {
+  key: "service"
+  value: "aiplatform.googleapis.com"
+}
+metadata {
+  key: "containerInfo"
+  value: "muzvideo2"
+}
+metadata {
+  key: "consumer"
+  value: "projects/muzvideo2"
+}
+, locale: "en-US"
+message: "This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry."
+, links {
+  description: "Google developers console billing"
+  url: "https://console.developers.google.com/billing/enable?project=muzvideo2"
+}
+]
+2025-07-05 10:35:23,006 - __main__ - INFO - Прогресс: 14/15
+2025-07-05 10:35:23,006 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_2.mp3
+2025-07-05 10:35:23,007 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_2.mp3 (audio/mpeg)
+2025-07-05 10:35:23,523 - __main__ - ERROR - Ошибка анализа downloaded_attachments\voice_2.mp3: 403 This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry. [reason: "BILLING_DISABLED"
+domain: "googleapis.com"
+metadata {
+  key: "service"
+  value: "aiplatform.googleapis.com"
+}
+metadata {
+  key: "containerInfo"
+  value: "muzvideo2"
+}
+metadata {
+  key: "consumer"
+  value: "projects/muzvideo2"
+}
+, locale: "en-US"
+message: "This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry."
+, links {
+  description: "Google developers console billing"
+  url: "https://console.developers.google.com/billing/enable?project=muzvideo2"
+}
+]
+2025-07-05 10:35:23,525 - __main__ - INFO - Прогресс: 15/15
+2025-07-05 10:35:23,526 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_3.mp3
+2025-07-05 10:35:23,526 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_3.mp3 (audio/mpeg)
+2025-07-05 10:35:24,077 - __main__ - ERROR - Ошибка анализа downloaded_attachments\voice_3.mp3: 403 This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry. [reason: "BILLING_DISABLED"
+domain: "googleapis.com"
+metadata {
+  key: "service"
+  value: "aiplatform.googleapis.com"
+}
+metadata {
+  key: "containerInfo"
+  value: "muzvideo2"
+}
+metadata {
+  key: "consumer"
+  value: "projects/muzvideo2"
+}
+, locale: "en-US"
+message: "This API method requires billing to be enabled. Please enable billing on project #muzvideo2 by visiting https://console.developers.google.com/billing/enable?project=muzvideo2 then retry. If you enabled billing for this project recently, wait a few minutes for the action to propagate to our systems and retry."
+, links {
+  description: "Google developers console billing"
+  url: "https://console.developers.google.com/billing/enable?project=muzvideo2"
+}
+]
+2025-07-05 10:35:24,081 - __main__ - INFO - Финальный отчет сохранен: analysis_results\final_analysis_report.json
+2025-07-05 10:35:24,083 - __main__ - INFO - Анализ завершен
+2025-07-05 10:35:24,084 - __main__ - INFO - Анализ завершен успешно
+2025-07-05 10:53:33,843 - __main__ - INFO - Запуск анализатора вложений
+2025-07-05 10:53:33,843 - __main__ - INFO - Найден файл ключей: key.json
+2025-07-05 10:53:33,845 - __main__ - INFO - Vertex AI ключи загружены. Проект: muzvideo2
+2025-07-05 10:53:33,846 - __main__ - INFO - Vertex AI инициализирован. Модель: gemini-1.5-flash
+2025-07-05 10:53:33,846 - __main__ - INFO - Начинаем анализ всех вложений...
+2025-07-05 10:53:33,850 - __main__ - INFO - Найдено photo: 3 файлов
+2025-07-05 10:53:33,850 - __main__ - INFO - Найдено video: 3 файлов
+2025-07-05 10:53:33,850 - __main__ - INFO - Найдено wall: 3 файлов
+2025-07-05 10:53:33,850 - __main__ - INFO - Найдено audio: 3 файлов
+2025-07-05 10:53:33,851 - __main__ - INFO - Найдено audio_message: 3 файлов
+2025-07-05 10:53:33,851 - __main__ - INFO - Анализируем photo: 3 файлов
+2025-07-05 10:53:33,851 - __main__ - INFO - Прогресс: 1/15
+2025-07-05 10:53:33,851 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_1.jpg
+2025-07-05 10:53:33,897 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_1.jpg (image/jpeg)
+2025-07-05 10:53:35,400 - __main__ - ERROR - Ошибка анализа downloaded_attachments\photo_1.jpg: 404 Publisher Model `projects/muzvideo2/locations/us-central1/publishers/google/models/gemini-1.5-flash` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions
+2025-07-05 10:53:35,401 - __main__ - INFO - Прогресс: 2/15
+2025-07-05 10:53:35,401 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_2.jpg
+2025-07-05 10:53:35,402 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_2.jpg (image/jpeg)
+2025-07-05 10:53:35,955 - __main__ - ERROR - Ошибка анализа downloaded_attachments\photo_2.jpg: 404 Publisher Model `projects/muzvideo2/locations/us-central1/publishers/google/models/gemini-1.5-flash` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions
+2025-07-05 10:53:35,956 - __main__ - INFO - Прогресс: 3/15
+2025-07-05 10:53:35,956 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_3.jpg
+2025-07-05 10:53:35,957 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_3.jpg (image/jpeg)
+2025-07-05 10:53:36,447 - __main__ - ERROR - Ошибка анализа downloaded_attachments\photo_3.jpg: 404 Publisher Model `projects/muzvideo2/locations/us-central1/publishers/google/models/gemini-1.5-flash` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions
+2025-07-05 10:53:36,449 - __main__ - INFO - Анализируем video: 3 файлов
+2025-07-05 10:53:36,449 - __main__ - INFO - Прогресс: 4/15
+2025-07-05 10:53:36,449 - __main__ - INFO - Анализируем video: downloaded_attachments\video_1.json
+2025-07-05 10:53:36,450 - __main__ - INFO - Прогресс: 5/15
+2025-07-05 10:53:36,450 - __main__ - INFO - Анализируем video: downloaded_attachments\video_2.json
+2025-07-05 10:53:36,451 - __main__ - INFO - Прогресс: 6/15
+2025-07-05 10:53:36,452 - __main__ - INFO - Анализируем video: downloaded_attachments\video_3.json
+2025-07-05 10:53:36,452 - __main__ - INFO - Анализируем sticker: 0 файлов
+2025-07-05 10:53:36,453 - __main__ - INFO - Анализируем wall: 3 файлов
+2025-07-05 10:53:36,453 - __main__ - INFO - Прогресс: 7/15
+2025-07-05 10:53:36,453 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_1.json
+2025-07-05 10:53:36,454 - __main__ - INFO - Прогресс: 8/15
+2025-07-05 10:53:36,454 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_2.json
+2025-07-05 10:53:36,456 - __main__ - INFO - Прогресс: 9/15
+2025-07-05 10:53:36,456 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_3.json
+2025-07-05 10:53:36,457 - __main__ - INFO - Анализируем audio: 3 файлов
+2025-07-05 10:53:36,458 - __main__ - INFO - Прогресс: 10/15
+2025-07-05 10:53:36,458 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_1.json
+2025-07-05 10:53:36,458 - __main__ - INFO - Прогресс: 11/15
+2025-07-05 10:53:36,459 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_2.json
+2025-07-05 10:53:36,459 - __main__ - INFO - Прогресс: 12/15
+2025-07-05 10:53:36,459 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_3.json
+2025-07-05 10:53:36,460 - __main__ - INFO - Анализируем audio_message: 3 файлов
+2025-07-05 10:53:36,460 - __main__ - INFO - Прогресс: 13/15
+2025-07-05 10:53:36,461 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_1.mp3
+2025-07-05 10:53:36,461 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_1.mp3 (audio/mpeg)
+2025-07-05 10:53:37,158 - __main__ - ERROR - Ошибка анализа downloaded_attachments\voice_1.mp3: 404 Publisher Model `projects/muzvideo2/locations/us-central1/publishers/google/models/gemini-1.5-flash` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions
+2025-07-05 10:53:37,160 - __main__ - INFO - Прогресс: 14/15
+2025-07-05 10:53:37,160 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_2.mp3
+2025-07-05 10:53:37,162 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_2.mp3 (audio/mpeg)
+2025-07-05 10:53:37,676 - __main__ - ERROR - Ошибка анализа downloaded_attachments\voice_2.mp3: 404 Publisher Model `projects/muzvideo2/locations/us-central1/publishers/google/models/gemini-1.5-flash` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions
+2025-07-05 10:53:37,677 - __main__ - INFO - Прогресс: 15/15
+2025-07-05 10:53:37,678 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_3.mp3
+2025-07-05 10:53:37,678 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_3.mp3 (audio/mpeg)
+2025-07-05 10:53:38,234 - __main__ - ERROR - Ошибка анализа downloaded_attachments\voice_3.mp3: 404 Publisher Model `projects/muzvideo2/locations/us-central1/publishers/google/models/gemini-1.5-flash` was not found or your project does not have access to it. Please ensure you are using a valid model version. For more information, see: https://cloud.google.com/vertex-ai/generative-ai/docs/learn/model-versions
+2025-07-05 10:53:38,238 - __main__ - INFO - Финальный отчет сохранен: analysis_results\final_analysis_report.json
+2025-07-05 10:53:38,241 - __main__ - INFO - Анализ завершен
+2025-07-05 10:53:38,242 - __main__ - INFO - Анализ завершен успешно
+2025-07-05 10:55:46,473 - __main__ - INFO - Запуск анализатора вложений
+2025-07-05 10:55:46,474 - __main__ - INFO - Найден файл ключей: key.json
+2025-07-05 10:55:46,475 - __main__ - INFO - Vertex AI ключи загружены. Проект: muzvideo2
+2025-07-05 10:55:46,476 - __main__ - INFO - Vertex AI инициализирован. Модель: gemini-2.5-flash
+2025-07-05 10:55:46,476 - __main__ - INFO - Начинаем анализ всех вложений...
+2025-07-05 10:55:46,478 - __main__ - INFO - Найдено photo: 3 файлов
+2025-07-05 10:55:46,479 - __main__ - INFO - Найдено video: 3 файлов
+2025-07-05 10:55:46,479 - __main__ - INFO - Найдено wall: 3 файлов
+2025-07-05 10:55:46,479 - __main__ - INFO - Найдено audio: 3 файлов
+2025-07-05 10:55:46,479 - __main__ - INFO - Найдено audio_message: 3 файлов
+2025-07-05 10:55:46,479 - __main__ - INFO - Анализируем photo: 3 файлов
+2025-07-05 10:55:46,480 - __main__ - INFO - Прогресс: 1/15
+2025-07-05 10:55:46,480 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_1.jpg
+2025-07-05 10:55:46,526 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_1.jpg (image/jpeg)
+2025-07-05 10:56:22,697 - __main__ - INFO - Прогресс: 2/15
+2025-07-05 10:56:22,697 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_2.jpg
+2025-07-05 10:56:22,698 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_2.jpg (image/jpeg)
+2025-07-05 10:56:56,685 - __main__ - INFO - Прогресс: 3/15
+2025-07-05 10:56:56,685 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_3.jpg
+2025-07-05 10:56:56,686 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_3.jpg (image/jpeg)
+2025-07-05 10:57:27,545 - __main__ - INFO - Анализируем video: 3 файлов
+2025-07-05 10:57:27,551 - __main__ - INFO - Прогресс: 4/15
+2025-07-05 10:57:27,556 - __main__ - INFO - Анализируем video: downloaded_attachments\video_1.json
+2025-07-05 10:57:27,559 - __main__ - INFO - Прогресс: 5/15
+2025-07-05 10:57:27,560 - __main__ - INFO - Анализируем video: downloaded_attachments\video_2.json
+2025-07-05 10:57:27,562 - __main__ - INFO - Прогресс: 6/15
+2025-07-05 10:57:27,563 - __main__ - INFO - Анализируем video: downloaded_attachments\video_3.json
+2025-07-05 10:57:27,565 - __main__ - INFO - Анализируем sticker: 0 файлов
+2025-07-05 10:57:27,566 - __main__ - INFO - Анализируем wall: 3 файлов
+2025-07-05 10:57:27,567 - __main__ - INFO - Прогресс: 7/15
+2025-07-05 10:57:27,568 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_1.json
+2025-07-05 10:57:27,571 - __main__ - INFO - Прогресс: 8/15
+2025-07-05 10:57:27,572 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_2.json
+2025-07-05 10:57:27,575 - __main__ - INFO - Прогресс: 9/15
+2025-07-05 10:57:27,576 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_3.json
+2025-07-05 10:57:27,579 - __main__ - INFO - Анализируем audio: 3 файлов
+2025-07-05 10:57:27,581 - __main__ - INFO - Прогресс: 10/15
+2025-07-05 10:57:27,581 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_1.json
+2025-07-05 10:57:27,584 - __main__ - INFO - Прогресс: 11/15
+2025-07-05 10:57:27,585 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_2.json
+2025-07-05 10:57:27,587 - __main__ - INFO - Прогресс: 12/15
+2025-07-05 10:57:27,587 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_3.json
+2025-07-05 10:57:27,589 - __main__ - INFO - Анализируем audio_message: 3 файлов
+2025-07-05 10:57:27,590 - __main__ - INFO - Прогресс: 13/15
+2025-07-05 10:57:27,590 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_1.mp3
+2025-07-05 10:57:27,591 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_1.mp3 (audio/mpeg)
+2025-07-05 10:57:28,948 - __main__ - INFO - Прогресс: 14/15
+2025-07-05 10:57:28,949 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_2.mp3
+2025-07-05 10:57:28,949 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_2.mp3 (audio/mpeg)
+2025-07-05 10:57:31,811 - __main__ - INFO - Прогресс: 15/15
+2025-07-05 10:57:31,811 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_3.mp3
+2025-07-05 10:57:31,812 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_3.mp3 (audio/mpeg)
+2025-07-05 10:57:34,942 - __main__ - INFO - Финальный отчет сохранен: analysis_results\final_analysis_report.json
+2025-07-05 10:57:34,944 - __main__ - INFO - Анализ завершен
+2025-07-05 10:57:34,944 - __main__ - INFO - Анализ завершен успешно
+2025-07-05 11:13:49,639 - __main__ - INFO - Запуск анализатора вложений
+2025-07-05 11:13:49,639 - __main__ - INFO - Найден файл ключей: key.json
+2025-07-05 11:13:49,641 - __main__ - INFO - Vertex AI ключи загружены. Проект: muzvideo2
+2025-07-05 11:13:49,642 - __main__ - INFO - Vertex AI инициализирован. Модель: gemini-2.5-flash
+2025-07-05 11:13:49,643 - __main__ - INFO - Начинаем анализ всех вложений...
+2025-07-05 11:13:49,645 - __main__ - INFO - Найдено photo: 3 файлов
+2025-07-05 11:13:49,645 - __main__ - INFO - Найдено video: 3 файлов
+2025-07-05 11:13:49,645 - __main__ - INFO - Найдено wall: 3 файлов
+2025-07-05 11:13:49,646 - __main__ - INFO - Найдено audio: 3 файлов
+2025-07-05 11:13:49,646 - __main__ - INFO - Найдено audio_message: 3 файлов
+2025-07-05 11:13:49,646 - __main__ - INFO - Анализируем photo: 3 файлов
+2025-07-05 11:13:49,646 - __main__ - INFO - Прогресс: 1/15
+2025-07-05 11:13:49,647 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_1.jpg
+2025-07-05 11:13:49,691 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_1.jpg (image/jpeg)
+2025-07-05 11:14:23,161 - __main__ - INFO - Прогресс: 2/15
+2025-07-05 11:14:23,161 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_2.jpg
+2025-07-05 11:14:23,163 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_2.jpg (image/jpeg)
+2025-07-05 11:14:45,317 - __main__ - INFO - Прогресс: 3/15
+2025-07-05 11:14:45,317 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_3.jpg
+2025-07-05 11:14:45,318 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_3.jpg (image/jpeg)
+2025-07-05 11:15:09,448 - __main__ - INFO - Анализируем video: 3 файлов
+2025-07-05 11:15:09,448 - __main__ - INFO - Прогресс: 4/15
+2025-07-05 11:15:09,449 - __main__ - INFO - Анализируем video: downloaded_attachments\video_1.json
+2025-07-05 11:15:09,449 - __main__ - WARNING - URL видео не найден в метаданных
+2025-07-05 11:15:09,449 - __main__ - INFO - Прогресс: 5/15
+2025-07-05 11:15:09,450 - __main__ - INFO - Анализируем video: downloaded_attachments\video_2.json
+2025-07-05 11:15:09,450 - __main__ - WARNING - URL видео не найден в метаданных
+2025-07-05 11:15:09,451 - __main__ - INFO - Прогресс: 6/15
+2025-07-05 11:15:09,451 - __main__ - INFO - Анализируем video: downloaded_attachments\video_3.json
+2025-07-05 11:15:09,451 - __main__ - WARNING - URL видео не найден в метаданных
+2025-07-05 11:15:09,451 - __main__ - INFO - Анализируем sticker: 0 файлов
+2025-07-05 11:15:09,452 - __main__ - INFO - Анализируем wall: 3 файлов
+2025-07-05 11:15:09,452 - __main__ - INFO - Прогресс: 7/15
+2025-07-05 11:15:09,452 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_1.json
+2025-07-05 11:15:09,453 - __main__ - INFO - Прогресс: 8/15
+2025-07-05 11:15:09,453 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_2.json
+2025-07-05 11:15:09,454 - __main__ - INFO - Прогресс: 9/15
+2025-07-05 11:15:09,455 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_3.json
+2025-07-05 11:15:09,456 - __main__ - INFO - Анализируем audio: 3 файлов
+2025-07-05 11:15:09,456 - __main__ - INFO - Прогресс: 10/15
+2025-07-05 11:15:09,456 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_1.json
+2025-07-05 11:15:09,457 - __main__ - INFO - Прогресс: 11/15
+2025-07-05 11:15:09,457 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_2.json
+2025-07-05 11:15:09,458 - __main__ - INFO - Прогресс: 12/15
+2025-07-05 11:15:09,458 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_3.json
+2025-07-05 11:15:09,459 - __main__ - INFO - Анализируем audio_message: 3 файлов
+2025-07-05 11:15:09,459 - __main__ - INFO - Прогресс: 13/15
+2025-07-05 11:15:09,459 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_1.mp3
+2025-07-05 11:15:09,460 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_1.mp3 (audio/mpeg)
+2025-07-05 11:15:10,852 - __main__ - INFO - Прогресс: 14/15
+2025-07-05 11:15:10,852 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_2.mp3
+2025-07-05 11:15:10,853 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_2.mp3 (audio/mpeg)
+2025-07-05 11:15:12,651 - __main__ - INFO - Прогресс: 15/15
+2025-07-05 11:15:12,651 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_3.mp3
+2025-07-05 11:15:12,652 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_3.mp3 (audio/mpeg)
+2025-07-05 11:15:14,445 - __main__ - INFO - Финальный отчет сохранен: analysis_results\final_analysis_report.json
+2025-07-05 11:15:14,450 - __main__ - INFO - Контекст для бота сохранен: analysis_results\bot_context.json
+2025-07-05 11:15:14,450 - __main__ - INFO - Анализ завершен
+2025-07-05 11:15:14,450 - __main__ - INFO - Анализ завершен успешно
+2025-07-05 11:21:36,802 - __main__ - INFO - Запуск анализатора вложений
+2025-07-05 11:21:36,803 - __main__ - INFO - Найден файл ключей: key.json
+2025-07-05 11:21:36,805 - __main__ - INFO - Vertex AI ключи загружены. Проект: muzvideo2
+2025-07-05 11:21:36,806 - __main__ - INFO - Vertex AI инициализирован. Модель: gemini-2.5-flash
+2025-07-05 11:21:36,806 - __main__ - INFO - Начинаем анализ всех вложений...
+2025-07-05 11:21:36,809 - __main__ - INFO - Найдено photo: 3 файлов
+2025-07-05 11:21:36,809 - __main__ - INFO - Найдено video: 3 файлов
+2025-07-05 11:21:36,809 - __main__ - INFO - Найдено wall: 3 файлов
+2025-07-05 11:21:36,809 - __main__ - INFO - Найдено audio: 3 файлов
+2025-07-05 11:21:36,809 - __main__ - INFO - Найдено audio_message: 3 файлов
+2025-07-05 11:21:36,810 - __main__ - INFO - Анализируем photo: 3 файлов
+2025-07-05 11:21:36,810 - __main__ - INFO - Прогресс: 1/15
+2025-07-05 11:21:36,810 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_1.jpg
+2025-07-05 11:21:36,854 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_1.jpg (image/jpeg)
+2025-07-05 11:22:09,825 - __main__ - INFO - Прогресс: 2/15
+2025-07-05 11:22:09,826 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_2.jpg
+2025-07-05 11:22:09,827 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_2.jpg (image/jpeg)
+2025-07-05 11:22:37,398 - __main__ - INFO - Прогресс: 3/15
+2025-07-05 11:22:37,398 - __main__ - INFO - Анализируем photo: downloaded_attachments\photo_3.jpg
+2025-07-05 11:22:37,399 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\photo_3.jpg (image/jpeg)
+2025-07-05 11:23:06,016 - __main__ - INFO - Анализируем video: 3 файлов
+2025-07-05 11:23:06,017 - __main__ - INFO - Прогресс: 4/15
+2025-07-05 11:23:06,017 - __main__ - INFO - Анализируем video: downloaded_attachments\video_1.json
+2025-07-05 11:23:06,017 - __main__ - WARNING - Видео еще обрабатывается на VK, анализируем метаданные
+2025-07-05 11:23:06,018 - __main__ - INFO - Прогресс: 5/15
+2025-07-05 11:23:06,018 - __main__ - INFO - Анализируем video: downloaded_attachments\video_2.json
+2025-07-05 11:23:06,019 - __main__ - INFO - Пытаемся получить URL видео через API: 78671089_456239945
+2025-07-05 11:23:06,353 - __main__ - WARNING - Не удалось получить URL видео через API
+2025-07-05 11:23:06,354 - __main__ - ERROR - URL видео не найден - ПОЛНЫЙ АНАЛИЗ ВИДЕО НЕВОЗМОЖЕН
+2025-07-05 11:23:06,356 - __main__ - INFO - Прогресс: 6/15
+2025-07-05 11:23:06,357 - __main__ - INFO - Анализируем video: downloaded_attachments\video_3.json
+2025-07-05 11:23:06,357 - __main__ - INFO - Пытаемся получить URL видео через API: 78671089_456239944
+2025-07-05 11:23:06,695 - __main__ - WARNING - Не удалось получить URL видео через API
+2025-07-05 11:23:06,696 - __main__ - ERROR - URL видео не найден - ПОЛНЫЙ АНАЛИЗ ВИДЕО НЕВОЗМОЖЕН
+2025-07-05 11:23:06,697 - __main__ - INFO - Анализируем sticker: 0 файлов
+2025-07-05 11:23:06,697 - __main__ - INFO - Анализируем wall: 3 файлов
+2025-07-05 11:23:06,698 - __main__ - INFO - Прогресс: 7/15
+2025-07-05 11:23:06,698 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_1.json
+2025-07-05 11:23:06,699 - __main__ - INFO - Прогресс: 8/15
+2025-07-05 11:23:06,699 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_2.json
+2025-07-05 11:23:06,700 - __main__ - INFO - Прогресс: 9/15
+2025-07-05 11:23:06,700 - __main__ - INFO - Анализируем wall: downloaded_attachments\wall_3.json
+2025-07-05 11:23:06,701 - __main__ - INFO - Анализируем audio: 3 файлов
+2025-07-05 11:23:06,701 - __main__ - INFO - Прогресс: 10/15
+2025-07-05 11:23:06,701 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_1.json
+2025-07-05 11:23:06,702 - __main__ - INFO - Прогресс: 11/15
+2025-07-05 11:23:06,702 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_2.json
+2025-07-05 11:23:06,703 - __main__ - INFO - Прогресс: 12/15
+2025-07-05 11:23:06,703 - __main__ - INFO - Анализируем audio: downloaded_attachments\audio_3.json
+2025-07-05 11:23:06,704 - __main__ - INFO - Анализируем audio_message: 3 файлов
+2025-07-05 11:23:06,704 - __main__ - INFO - Прогресс: 13/15
+2025-07-05 11:23:06,704 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_1.mp3
+2025-07-05 11:23:06,705 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_1.mp3 (audio/mpeg)
+2025-07-05 11:23:08,498 - __main__ - INFO - Прогресс: 14/15
+2025-07-05 11:23:08,498 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_2.mp3
+2025-07-05 11:23:08,499 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_2.mp3 (audio/mpeg)
+2025-07-05 11:23:10,399 - __main__ - INFO - Прогресс: 15/15
+2025-07-05 11:23:10,399 - __main__ - INFO - Анализируем audio_message: downloaded_attachments\voice_3.mp3
+2025-07-05 11:23:10,400 - __main__ - INFO - Файл загружен как Part: downloaded_attachments\voice_3.mp3 (audio/mpeg)
+2025-07-05 11:23:12,084 - __main__ - INFO - Финальный отчет сохранен: analysis_results\final_analysis_report.json
+2025-07-05 11:23:12,090 - __main__ - INFO - Контекст для бота сохранен: analysis_results\bot_context.json
+2025-07-05 11:23:12,090 - __main__ - INFO - Анализ завершен
+2025-07-05 11:23:12,091 - __main__ - INFO - Анализ завершен успешно

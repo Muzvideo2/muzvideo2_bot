@@ -195,6 +195,7 @@ def send_telegram_notification(user_question_text, dialog_id, first_name="", las
         return
 
     vk_dialog_link = f"https://vk.com/gim{VK_COMMUNITY_ID}?sel={dialog_id}"
+    web_dialog_link = f"https://chat.muzvideo2.ru/chat/{dialog_id}"
     user_full_name = f"{first_name} {last_name}".strip()
     if not user_full_name:
         user_full_name = f"Пользователь ID {dialog_id}"
@@ -203,6 +204,7 @@ def send_telegram_notification(user_question_text, dialog_id, first_name="", las
 👤 Пользователь: {user_full_name}
 💬 Стартовый вопрос: {user_question_text}
 🔗 Ссылка на диалог: {vk_dialog_link}
+🔗 Ссылка на диалог (веб):  {web_dialog_link}
     """.strip()
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -229,6 +231,7 @@ def send_operator_request_notification(dialog_id, initial_question, dialog_summa
         return
 
     vk_dialog_link = f"https://vk.com/gim{VK_COMMUNITY_ID}?sel={dialog_id}"
+    web_dialog_link = f"https://chat.muzvideo2.ru/chat/{dialog_id}"
     user_full_name = f"{first_name} {last_name}".strip()
     if not user_full_name:
         user_full_name = f"Пользователь ID {dialog_id}"
@@ -240,6 +243,7 @@ def send_operator_request_notification(dialog_id, initial_question, dialog_summa
 📝 Сводка обсуждения: {dialog_summary}
 🤔 Предполагаемая причина: {reason_guess}
 🔗 Ссылка на диалог: {vk_dialog_link}
+🔗 Ссылка на диалог (веб):  {web_dialog_link}
     """.strip()
 
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"

@@ -798,7 +798,7 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             messages = cur.fetchall()
             
             if not messages:
-                # logging.info(f"Нет сообщений для анализа в диалоге {conv_id}")
+                logging.info(f"Нет сообщений для анализа в диалоге {conv_id}")
                 return None
             
             # Для администратора дополнительно фильтруем только действительно свежие сообщения
@@ -820,10 +820,10 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                 messages = filtered_messages
                 
                 if not messages:
-                    # logging.info(f"Нет свежих сообщений (за последние 10 минут) от администратора {conv_id}")
+                    logging.info(f"Нет свежих сообщений (за последние 10 минут) от администратора {conv_id}")
                     return None
                 
-                # logging.info(f"Анализ администратора: найдено {len(messages)} свежих сообщений за последние 10 минут")
+                logging.info(f"Анализ администратора: найдено {len(messages)} свежих сообщений за последние 10 минут")
             
             # Форматируем сообщения для промпта
             dialogue_text = []
@@ -881,14 +881,14 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                 user_info += f", часовой пояс={client_timezone}"
                 if conv_id == ADMIN_CONV_ID:
                     user_info += " (АДМИНИСТРАТОР)"
-                    # logging.info(f"=== АНАЛИЗ СООБЩЕНИЙ АДМИНИСТРАТОРА ===")
-                    # logging.info(f"Обрабатываем сообщения от администратора (conv_id={ADMIN_CONV_ID})")
-                    # # Логируем последнее сообщение от пользователя детально
-                    # user_messages = [msg for msg in messages if msg['role'] == 'user']
-                    # if user_messages:
-                    #     last_user_msg = user_messages[0]  # Самое последнее
-                    #     logging.info(f"Последнее сообщение пользователя: '{last_user_msg['message']}'")
-                    # logging.info("=== КОНЕЦ АНАЛИЗА АДМИНИСТРАТОРА ===")
+                    logging.info(f"=== АНАЛИЗ СООБЩЕНИЙ АДМИНИСТРАТОРА ===")
+                    logging.info(f"Обрабатываем сообщения от администратора (conv_id={ADMIN_CONV_ID})")
+                    # Логируем последнее сообщение от пользователя детально
+                    user_messages = [msg for msg in messages if msg['role'] == 'user']
+                    if user_messages:
+                        last_user_msg = user_messages[0]  # Самое последнее
+                        logging.info(f"Последнее сообщение пользователя: '{last_user_msg['message']}'")
+                    logging.info("=== КОНЕЦ АНАЛИЗА АДМИНИСТРАТОРА ===")
             else:
                 user_info = f"conv_id={conv_id}, часовой пояс={client_timezone}"
             
@@ -937,9 +937,9 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             )
             
             # Логируем полный промпт для диагностики
-            # logging.info(f"=== ПОЛНЫЙ ПРОМПТ ДЛЯ АНАЛИЗА ДИАЛОГА {conv_id} ===")
-            # logging.info(prompt)
-            # logging.info("=== КОНЕЦ ПРОМПТА ===")
+            logging.info(f"=== ПОЛНЫЙ ПРОМПТ ДЛЯ АНАЛИЗА ДИАЛОГА {conv_id} ===")
+            logging.info(prompt)
+            logging.info("=== КОНЕЦ ПРОМПТА ===")
             
             # Вызываем AI для анализа
             result = call_gemini_api(model, prompt, expect_json=True)

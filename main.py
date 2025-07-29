@@ -1822,7 +1822,9 @@ def build_context_sync(vk_callback_data):
 
             for table in ordered_tables:
                 rows = fetch_data_from_table(conn, table, conv_id)
-                if rows:
+                
+                # КРИТИЧЕСКИ ВАЖНО: Для таблицы reminders вызываем форматтер всегда, даже если нет данных
+                if rows or table == 'reminders':
                     formatter_func = formatters.get(table, format_generic)
                     if formatter_func == format_generic:
                         formatted_block = formatter_func(rows, table)

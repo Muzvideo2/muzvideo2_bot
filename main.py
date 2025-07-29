@@ -1678,6 +1678,10 @@ def fetch_data_from_table(conn, table_name, conv_id):
             if table_name == 'dialogues':
                 query = "SELECT * FROM dialogues WHERE conv_id = %s ORDER BY created_at DESC LIMIT %s;"
                 cur.execute(query, (conv_id, DIALOGUES_LIMIT))
+            elif table_name == 'reminders':
+                # КРИТИЧЕСКИ ВАЖНО: Получаем только активные напоминания для агента-коммуникатора
+                query = "SELECT * FROM reminders WHERE conv_id = %s AND status = 'active' ORDER BY reminder_datetime;"
+                cur.execute(query, (conv_id,))
             else:
                 query = f"SELECT * FROM {psycopg2.extensions.AsIs(table_name)} WHERE conv_id = %s;"
                 cur.execute(query, (conv_id,))
@@ -1741,6 +1745,32 @@ def format_dialogues(rows):
         lines.append(f"{role}: {clean_message}")
     return "\n".join(lines)
 
+def format_active_reminders(rows):
+    """Форматтер для активных напоминаний агента-коммуникатора."""
+    if not rows: 
+        return "--- АКТИВНЫЕ НАПОМИНАНИЯ ---\nНет активных напоминаний"
+    
+    lines = ["--- АКТИВНЫЕ НАПОМИНАНИЯ ---"]
+    for reminder in rows:
+        reminder_time = reminder.get('reminder_datetime', 'неизвестно')
+        reminder_context = reminder.get('reminder_context_summary', 'без описания')
+        
+        # Форматируем время для удобочитаемости
+        if reminder_time != 'неизвестно':
+            try:
+                if hasattr(reminder_time, 'strftime'):
+                    time_str = reminder_time.strftime('%Y-%m-%d %H:%M')
+                else:
+                    time_str = str(reminder_time)
+            except:
+                time_str = str(reminder_time)
+        else:
+            time_str = 'неизвестно'
+            
+        lines.append(f"📅 {time_str}: {reminder_context}")
+    
+    return "\n".join(lines)
+
 def format_generic(rows, table_name):
     if not rows: return ""
     lines = [f'--- ДАННЫЕ ИЗ ТАБЛИЦЫ "{table_name}" ---']
@@ -1778,7 +1808,7 @@ def build_context_sync(vk_callback_data):
             # === ШАГ 3: Собрать все данные для контекста ===
             tables_to_scan = find_user_data_tables(conn)
 
-            preferred_order = ['user_profiles', 'client_purchases', 'purchased_products', 'dialogues']
+            preferred_order = ['reminders', 'user_profiles', 'client_purchases', 'purchased_products', 'dialogues']
             ordered_tables = [t for t in preferred_order if t in tables_to_scan]
             ordered_tables.extend([t for t in tables_to_scan if t not in preferred_order])
 
@@ -1786,7 +1816,8 @@ def build_context_sync(vk_callback_data):
                 'user_profiles': format_user_profile,
                 'client_purchases': format_client_purchases,
                 'purchased_products': format_purchased_products,
-                'dialogues': format_dialogues
+                'dialogues': format_dialogues,
+                'reminders': format_active_reminders
             }
 
             for table in ordered_tables:

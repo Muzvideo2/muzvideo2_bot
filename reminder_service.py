@@ -1083,23 +1083,25 @@ def create_or_update_reminder(conn, conv_id, reminder_data, created_by_conv_id=N
                 # Дополнительная проверка на существующие похожие напоминания
                 summary = reminder_data.get('reminder_context_summary', '').strip()
                 if summary:
-                    cur.execute("""
-                        SELECT id, reminder_context_summary, reminder_datetime
-                        FROM reminders 
-                        WHERE conv_id = %s AND status = 'active'
-                        AND similarity(reminder_context_summary, %s) > 0.6
-                        ORDER BY created_at DESC
-                        LIMIT 3
-                    """, (target_conv_id, summary))
+                    # ВРЕМЕННО ОТКЛЮЧЕНО ИЗ-ЗА ОШИБКИ ОТСУТСТВИЯ РАСШИРЕНИЯ pg_trgm
+                    # cur.execute("""
+                    #     SELECT id, reminder_context_summary, reminder_datetime
+                    #     FROM reminders 
+                    #     WHERE conv_id = %s AND status = 'active'
+                    #     AND similarity(reminder_context_summary, %s) > 0.6
+                    #     ORDER BY created_at DESC
+                    #     LIMIT 3
+                    # """, (target_conv_id, summary))
                     
-                    similar_reminders = cur.fetchall()
-                    if similar_reminders:
-                        logging.warning(f"ПРЕДУПРЕЖДЕНИЕ {conv_id}: Найдены похожие активные напоминания для target_conv_id={target_conv_id}:")
-                        for similar in similar_reminders:
-                            logging.warning(f"  - ID={similar[0]}: '{similar[1]}' на {similar[2]}")
+                    # similar_reminders = cur.fetchall()
+                    # if similar_reminders:
+                    #     logging.warning(f"ПРЕДУПРЕЖДЕНИЕ {conv_id}: Найдены похожие активные напоминания для target_conv_id={target_conv_id}:")
+                    #     for similar in similar_reminders:
+                    #         logging.warning(f"  - ID={similar[0]}: '{similar[1]}' на {similar[2]}")
                         
-                        # Можно добавить более строгую проверку, если нужно
-                        # return  # Раскомментировать для блокировки создания похожих напоминаний
+                    # Можно добавить более строгую проверку, если нужно
+                    # return  # Раскомментировать для блокировки создания похожих напоминаний
+                    pass # Установлена заглушка после комментирования
                 
                 # Парсим дату/время с учетом часового пояса
                 reminder_dt = parse_datetime_with_timezone(

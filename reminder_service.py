@@ -306,6 +306,26 @@ PROMPT_ANALYZE_DIALOGUE = """
 - Если администратор говорит "поставились напоминания", "бот запутался" - НЕ создавай новых напоминаний
 - Создавай напоминания ТОЛЬКО при ЯВНЫХ новых просьбах типа "поставь напоминание"
 
+⚠️ КРИТИЧЕСКИ ВАЖНО - ПРАВИЛА ПРОТИВ ДУБЛИРОВАНИЯ:
+1. НА ОДНУ ПРОСЬБУ СОЗДАВАЙ ТОЛЬКО ОДНО НАПОМИНАНИЕ!
+2. Если администратор говорит "поставь МНЕ напоминание" → target_conv_id = {admin_conv_id}
+3. Если администратор говорит "поставь Сергею/клиенту напоминание" → target_conv_id = conv_id этого клиента
+4. НИКОГДА не создавай два напоминания с одинаковым содержанием для разных людей!
+5. Если в сообщении есть имя человека БЕЗ указания conv_id - НЕ создавай напоминание!
+
+ПРИМЕРЫ ПРАВИЛЬНОГО ОПРЕДЕЛЕНИЯ target_conv_id:
+✅ Администратор: "Поставь мне напоминание завтра проверить отчеты"
+   → target_conv_id: {admin_conv_id} (ТОЛЬКО одно напоминание для администратора)
+
+✅ Администратор: "Поставь напоминание conv_id: 90123456 завтра о консультации"  
+   → target_conv_id: 90123456 (ТОЛЬКО одно напоминание для указанного клиента)
+
+❌ Администратор: "Поставь Сергею Какорину напоминание завтра"
+   → НЕ СОЗДАВАЙ - нет conv_id для Сергея Какорина!
+
+❌ Администратор: "Поставь напоминание мне и Сергею"
+   → НЕ СОЗДАВАЙ - неясная просьба для нескольких людей!
+
 ТИПЫ ДОГОВОРЕННОСТЕЙ:
 - Прямые просьбы: "Напомните мне завтра в 10:00 об оплате"
 - Прямые просьбы с двойным временем: "Напомните мне завтра в 10 утра о том, чтобы я мог оплатить вечером в 18:00"
@@ -370,6 +390,7 @@ ID текущего диалога: {conv_id}
 
 ВЕРНИ ОТВЕТ СТРОГО В ФОРМАТЕ JSON, содержащий СПИСОК всех найденных действий.
 Если действий нет, верни: {{"reminders": []}}.
+ПОМНИ: НА ОДНУ ПРОСЬБУ - ТОЛЬКО ОДНО НАПОМИНАНИЕ!
 [
   {{
     "action": "create/update/cancel/none",
@@ -666,6 +687,11 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             # Вызываем AI для анализа
             result = call_gemini_api(model, prompt, expect_json=True)
             
+            # ===== ДОБАВЛЯЕМ ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ =====
+            logging.info(f"=== ПОЛНЫЙ ОТВЕТ AI ДЛЯ ДИАЛОГА {conv_id} ===")
+            logging.info(f"Сырой ответ AI: {json.dumps(result, ensure_ascii=False, indent=2)}")
+            logging.info("=== КОНЕЦ ОТВЕТА AI ===")
+            
             # Обрабатываем результат, который может быть списком или словарем
             reminders_to_process = []
             if isinstance(result, list):
@@ -673,20 +699,41 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
             elif isinstance(result, dict):
                 reminders_to_process = result.get('reminders', [])
 
-            # logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: AI вернул {len(reminders_to_process)} потенциальных напоминаний")
+            logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: AI вернул {len(reminders_to_process)} потенциальных напоминаний")
 
             if reminders_to_process:
                 processed_reminders = []
+                
+                # ===== ДОБАВЛЯЕМ ПРОВЕРКУ НА ДУБЛИКАТЫ ВНУТРИ ОДНОГО ОТВЕТА =====
+                unique_reminders = {}  # ключ: (target_conv_id, summary_hash), значение: reminder_data
+                
                 for i, reminder_data in enumerate(reminders_to_process):
-                    # logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: Обрабатываю напоминание {i+1}: {reminder_data}")
+                    logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: Обрабатываю напоминание {i+1}: {reminder_data}")
                     
                     if reminder_data.get('action') != 'none':
-                        # Проверяем, не создаем ли мы дублирующее напоминание
+                        # Проверяем валидность target_conv_id
+                        target_conv_id = reminder_data.get('target_conv_id')
+                        if not target_conv_id:
+                            logging.warning(f"ОТКЛОНЕНО НАПОМИНАНИЕ {conv_id}: Отсутствует target_conv_id: {reminder_data}")
+                            continue
+                        
+                        # Создаем ключ для проверки дубликатов внутри одного ответа AI
+                        summary = reminder_data.get('reminder_context_summary', '').lower().strip()
+                        summary_hash = hash(summary)
+                        duplicate_key = (target_conv_id, summary_hash)
+                        
+                        if duplicate_key in unique_reminders:
+                            logging.warning(f"ДУБЛИКАТ В ОТВЕТЕ AI {conv_id}: Обнаружен дубликат напоминания для target_conv_id={target_conv_id}, summary='{summary}'. Пропускаю.")
+                            continue
+                        
+                        unique_reminders[duplicate_key] = reminder_data
+                        
+                        # Проверяем, не создаем ли мы дублирующее напоминание с существующими
                         if reminder_data.get('action') == 'create' and active_reminders:
-                            new_summary = reminder_data.get('reminder_context_summary', '').lower()
+                            new_summary = summary
                             is_duplicate = False
                             
-                            # logging.info(f"ПРОВЕРКА ДУБЛИКАТОВ {conv_id}: Новое напоминание '{new_summary}' против {len(active_reminders)} существующих")
+                            logging.info(f"ПРОВЕРКА ДУБЛИКАТОВ {conv_id}: Новое напоминание '{new_summary}' против {len(active_reminders)} существующих")
                             
                             for existing in active_reminders:
                                 existing_summary = existing['reminder_context_summary'].lower()
@@ -697,10 +744,10 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                                 
                                 if new_words and existing_words:
                                     similarity = len(intersection) / len(new_words)
-                                    # logging.info(f"СРАВНЕНИЕ ДУБЛИКАТОВ {conv_id}: '{new_summary}' vs '{existing_summary}' - схожесть {similarity:.2f}")
+                                    logging.info(f"СРАВНЕНИЕ ДУБЛИКАТОВ {conv_id}: '{new_summary}' vs '{existing_summary}' - схожесть {similarity:.2f}")
                                     
                                     if similarity > 0.5:
-                                        # logging.info(f"ДУБЛИКАТ НАЙДЕН {conv_id}: Пропускаем создание дублирующего напоминания '{new_summary}'")
+                                        logging.info(f"ДУБЛИКАТ НАЙДЕН {conv_id}: Пропускаем создание дублирующего напоминания '{new_summary}'")
                                         is_duplicate = True
                                         break
                                         
@@ -712,21 +759,20 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                             summary = reminder_data.get('reminder_context_summary', '').lower()
                             # Отклоняем напоминания по жалобам на ошибки
                             if any(word in summary for word in ['ошибк', 'запутал', 'поставил', 'проблем', 'баг']):
-                                # logging.info(f"ФИЛЬТР АДМИНИСТРАТОРА {conv_id}: Пропускаю напоминание по жалобе/ошибке: '{summary}'")
+                                logging.info(f"ФИЛЬТР АДМИНИСТРАТОРА {conv_id}: Пропускаю напоминание по жалобе/ошибке: '{summary}'")
                                 continue
                         
                         reminder_data['client_timezone'] = client_timezone
-                        # logging.info(f"ПРИНЯТО НАПОМИНАНИЕ {conv_id}: {reminder_data}")
+                        logging.info(f"ПРИНЯТО НАПОМИНАНИЕ {conv_id}: {reminder_data}")
                         processed_reminders.append(reminder_data)
                     else:
-                        # logging.info(f"ПРОПУЩЕНО НАПОМИНАНИЕ {conv_id}: action='none'")
-                        pass
+                        logging.info(f"ПРОПУЩЕНО НАПОМИНАНИЕ {conv_id}: action='none'")
 
                 if processed_reminders:
-                    logging.info(f"ИТОГ АНАЛИЗА {conv_id}: Принято {len(processed_reminders)} из {len(reminders_to_process)} напоминаний")
+                    logging.info(f"ИТОГ АНАЛИЗА {conv_id}: Принято {len(processed_reminders)} из {len(reminders_to_process)} напоминаний после проверки дубликатов")
                 return processed_reminders if processed_reminders else None
             
-            # logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: Напоминания не найдены")
+            logging.info(f"АНАЛИЗ ДИАЛОГА {conv_id}: Напоминания не найдены")
             return None
             
     except Exception as e:
@@ -742,7 +788,38 @@ def create_or_update_reminder(conn, conv_id, reminder_data, created_by_conv_id=N
             action = reminder_data.get('action')
             target_conv_id = reminder_data.get('target_conv_id', conv_id)
             
+            # ===== ДОБАВЛЯЕМ ДОПОЛНИТЕЛЬНУЮ ВАЛИДАЦИЮ =====
             if action == 'create':
+                # Проверяем валидность target_conv_id
+                if not target_conv_id or target_conv_id == 0:
+                    logging.error(f"ОТКЛОНЕНО СОЗДАНИЕ НАПОМИНАНИЯ {conv_id}: Некорректный target_conv_id={target_conv_id}")
+                    return
+                
+                # Логируем детали создания
+                logging.info(f"СОЗДАНИЕ НАПОМИНАНИЯ: conv_id={conv_id}, target_conv_id={target_conv_id}, created_by={created_by_conv_id}")
+                logging.info(f"ДЕТАЛИ НАПОМИНАНИЯ: {reminder_data}")
+                
+                # Дополнительная проверка на существующие похожие напоминания
+                summary = reminder_data.get('reminder_context_summary', '').strip()
+                if summary:
+                    cur.execute("""
+                        SELECT id, reminder_context_summary, reminder_datetime
+                        FROM reminders 
+                        WHERE conv_id = %s AND status = 'active'
+                        AND similarity(reminder_context_summary, %s) > 0.6
+                        ORDER BY created_at DESC
+                        LIMIT 3
+                    """, (target_conv_id, summary))
+                    
+                    similar_reminders = cur.fetchall()
+                    if similar_reminders:
+                        logging.warning(f"ПРЕДУПРЕЖДЕНИЕ {conv_id}: Найдены похожие активные напоминания для target_conv_id={target_conv_id}:")
+                        for similar in similar_reminders:
+                            logging.warning(f"  - ID={similar[0]}: '{similar[1]}' на {similar[2]}")
+                        
+                        # Можно добавить более строгую проверку, если нужно
+                        # return  # Раскомментировать для блокировки создания похожих напоминаний
+                
                 # Парсим дату/время с учетом часового пояса
                 reminder_dt = parse_datetime_with_timezone(
                     reminder_data['proposed_datetime'],
@@ -771,7 +848,7 @@ def create_or_update_reminder(conn, conv_id, reminder_data, created_by_conv_id=N
                 
                 reminder_id = cur.fetchone()[0]
                 conn.commit()
-                logging.info(f"Создано напоминание ID={reminder_id} для conv_id={target_conv_id}")
+                logging.info(f"✅ СОЗДАНО НАПОМИНАНИЕ ID={reminder_id} для target_conv_id={target_conv_id} (создал conv_id={created_by_conv_id or conv_id})")
                 
             elif action == 'cancel':
                 # Отменяем активные напоминания

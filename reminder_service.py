@@ -40,6 +40,9 @@ import requests
 from itertools import groupby
 from operator import itemgetter
 
+# Словарь блокировок для предотвращения конкурентного создания напоминаний
+reminder_creation_locks = {}
+
 try:
     import vertexai
     from vertexai.generative_models import GenerativeModel
@@ -339,19 +342,31 @@ PROMPT_ANALYZE_DIALOGUE = """
    - "Можете написать мне через час?"
    → target_conv_id = conv_id клиента (НЕ администратора!)
 
+ОБЯЗАТЕЛЬНЫЙ ФОРМАТ ОПИСАНИЙ НАПОМИНАНИЙ:
+
+🔹 ДЛЯ КЛИЕНТОВ: "[Действие] для [Имя Клиента] (conv_id: [ID]) - [Причина]"
+   Пример: "Написать Юлии Благодаровой (conv_id: 553547455) о консультации завтра"
+
+🔹 ДЛЯ АДМИНИСТРАТОРА: "[Действие для admin] - [Причина] от клиента [Имя] (conv_id: [ID клиента])"
+   Пример: "Связаться с администратором - клиент Мария Иванова (conv_id: 123456) просит консультацию"
+
 ПРИМЕРЫ ПРАВИЛЬНОГО ОПРЕДЕЛЕНИЯ target_conv_id:
 
 ✅ Администратор: "Поставь мне напоминание завтра проверить отчеты"
    → target_conv_id: {admin_conv_id} (ТОЛЬКО одно напоминание для администратора)
+   → reminder_context_summary: "Проверить отчеты по задаче от {admin_conv_id}"
 
 ✅ Администратор: "Поставь напоминание conv_id: 90123456 завтра о консультации"  
    → target_conv_id: 90123456 (ТОЛЬКО одно напоминание для указанного клиента)
+   → reminder_context_summary: "Консультация для клиента (conv_id: 90123456) по запросу admin"
 
 ✅ Клиент: "Передайте Сергею, чтобы он мне написал"
    → target_conv_id: {admin_conv_id} (ТОЛЬКО одно напоминание для администратора)
+   → reminder_context_summary: "Связаться с администратором - клиент [Имя] (conv_id: [conv_id клиента]) просит контакт"
 
 ✅ Клиент: "Напомните мне завтра об оплате"
    → target_conv_id: [conv_id клиента] (ТОЛЬКО одно напоминание для клиента)
+   → reminder_context_summary: "Напомнить [Имя] (conv_id: [conv_id]) об оплате"
 
 ❌ Администратор: "Поставь Сергею Какорину напоминание завтра"
    → НЕ СОЗДАВАЙ - нет conv_id для Сергея Какорина!
@@ -522,6 +537,8 @@ ID текущего диалога: {conv_id}
 🚫 НЕ СОЗДАВАЙ НОВОЕ НАПОМИНАНИЕ, ЕСЛИ:
 1. ✅ В списке "АКТИВНЫЕ НАПОМИНАНИЯ" уже есть точно такое же или очень похожее по смыслу и времени. Это твой главный источник правды.
 2. ✅ Клиент просто продолжает обсуждать детали уже согласованного напоминания, не создавая новой просьбы.
+3. ✅ ОБЯЗАТЕЛЬНО проверяй каждое предлагаемое напоминание против списка активных. Даже небольшая схожесть (>50% общих слов) - повод НЕ создавать дубликат.
+4. ✅ При любых сомнениях - лучше НЕ создавать новое напоминание, чем создать дубликат.
 
 ✅ ОБЯЗАТЕЛЬНО СОЗДАЙ НАПОМИНАНИЕ, ЕСЛИ:
 1. ✅ Клиент попросил напомнить, а Ассистент в ответ пообещал это сделать ("хорошо, напомню", "поставил напоминание"). Твоя задача — выполнить это обещание! Ответ Ассистента — это подтверждение необходимости создания напоминания, а не признак того, что оно уже существует.
@@ -868,18 +885,23 @@ def analyze_dialogue_for_reminders(conn, conv_id, model):
                 timestamp = msg['created_at'].strftime('%Y-%m-%d %H:%M:%S') if msg['created_at'] else 'неизвестно'
                 dialogue_text.append(f"[{timestamp}] {role}: {message_text}")
             
-            # Получаем активные напоминания для клиента
+            # Получаем активные напоминания для клиента (ВСЕГДА СВЕЖИЕ ДАННЫЕ)
+            # КРИТИЧЕСКИ ВАЖНО: Выполняем запрос БЕЗ КЕШИРОВАНИЯ для актуального состояния
             cur.execute("""
-                SELECT reminder_datetime, reminder_context_summary 
+                SELECT id, reminder_datetime, reminder_context_summary, created_at
                 FROM reminders 
                 WHERE conv_id = %s AND status = 'active'
                 ORDER BY reminder_datetime
             """, (conv_id,))
             active_reminders = cur.fetchall()
             
+            logging.info(f"ПРОВЕРКА СУЩЕСТВУЮЩИХ НАПОМИНАНИЙ: Найдено {len(active_reminders)} активных напоминаний для conv_id={conv_id}")
+            
             reminders_text = []
             for rem in active_reminders:
-                reminders_text.append(f"- {rem['reminder_datetime']}: {rem['reminder_context_summary']}")
+                # Добавляем ID напоминания для лучшей отслеживаемости
+                created_time = rem['created_at'].strftime('%Y-%m-%d %H:%M:%S') if rem['created_at'] else 'неизвестно'
+                reminders_text.append(f"- [ID:{rem['id']}] {rem['reminder_datetime']}: {rem['reminder_context_summary']} (создано: {created_time})")
             
             # Получаем информацию о клиенте и определяем часовой пояс
             cur.execute("""
@@ -1086,20 +1108,67 @@ def create_or_update_reminder(conn, conv_id, reminder_data, created_by_conv_id=N
             action = reminder_data.get('action')
             target_conv_id = reminder_data.get('target_conv_id', conv_id)
             
-            # ===== ДОБАВЛЯЕМ ДОПОЛНИТЕЛЬНУЮ ВАЛИДАЦИЮ =====
+            # ===== КРИТИЧЕСКАЯ ЗАЩИТА ОТ ПУТАНИЦЫ КОНТЕКСТОВ =====
             if action == 'create':
-                # Проверяем валидность target_conv_id
+                # 1. Проверяем валидность target_conv_id
                 if not target_conv_id or target_conv_id == 0:
                     logging.error(f"ОТКЛОНЕНО СОЗДАНИЕ НАПОМИНАНИЯ {conv_id}: Некорректный target_conv_id={target_conv_id}")
                     return
+                
+                # 2. ЗАЩИТА ОТ ПУТАНИЦЫ: Разрешаем создавать напоминания только для того же пользователя или администратора
+                if target_conv_id != conv_id and target_conv_id != ADMIN_CONV_ID:
+                    logging.error(f"БЛОКИРОВКА ПУТАНИЦЫ КОНТЕКСТОВ: Пользователь conv_id={conv_id} пытается создать напоминание для target_conv_id={target_conv_id}. Это запрещено для безопасности.")
+                    return
+                
+                # 3. Если администратор создаёт напоминание не для себя, проверяем explicit разрешение
+                if conv_id == ADMIN_CONV_ID and target_conv_id != ADMIN_CONV_ID:
+                    # Проверяем, что в описании есть явное указание conv_id клиента
+                    reminder_summary = reminder_data.get('reminder_context_summary', '').lower()
+                    if f"conv_id: {target_conv_id}" not in reminder_summary and f"conv_id:{target_conv_id}" not in reminder_summary:
+                        logging.error(f"БЛОКИРОВКА АДМИНИСТРАТОРА: Admin conv_id={conv_id} пытается создать напоминание для target_conv_id={target_conv_id}, но в описании нет явного 'conv_id: {target_conv_id}'. Блокируем для безопасности.")
+                        return
                 
                 # Логируем детали создания
                 logging.info(f"СОЗДАНИЕ НАПОМИНАНИЯ: conv_id={conv_id}, target_conv_id={target_conv_id}, created_by={created_by_conv_id}")
                 logging.info(f"ДЕТАЛИ НАПОМИНАНИЯ: {reminder_data}")
                 
-                # Дополнительная проверка на существующие похожие напоминания
+                # ===== УСИЛЕННАЯ ДЕДУПЛИКАЦИЯ НАПОМИНАНИЙ =====
                 summary = reminder_data.get('reminder_context_summary', '').strip()
                 if summary:
+                    # Проверяем на точные дубликаты по времени и описанию
+                    proposed_time = parse_datetime_with_timezone(
+                        reminder_data['proposed_datetime'],
+                        reminder_data.get('client_timezone', 'Europe/Moscow')
+                    )
+                    
+                    cur.execute("""
+                        SELECT id, reminder_context_summary, reminder_datetime
+                        FROM reminders 
+                        WHERE conv_id = %s AND status = 'active'
+                        AND ABS(EXTRACT(EPOCH FROM (reminder_datetime - %s))) < 3600
+                        ORDER BY created_at DESC
+                        LIMIT 5
+                    """, (target_conv_id, proposed_time))
+                    
+                    similar_by_time = cur.fetchall()
+                    if similar_by_time:
+                        for existing in similar_by_time:
+                            existing_summary = existing[1].lower().strip()
+                            new_summary = summary.lower().strip()
+                            
+                            # Проверяем схожесть по ключевым словам
+                            new_words = set(new_summary.split())
+                            existing_words = set(existing_summary.split())
+                            intersection = new_words & existing_words
+                            
+                            if new_words and existing_words:
+                                similarity = len(intersection) / len(new_words | existing_words)  # Жаккар индекс
+                                logging.info(f"ДЕДУПЛИКАЦИЯ: Сравнение '{new_summary}' vs '{existing_summary}' - схожесть {similarity:.2f}")
+                                
+                                # Более строгая проверка: блокируем при схожести > 60%
+                                if similarity > 0.6:
+                                    logging.warning(f"ДУБЛИРУЮЩЕЕ НАПОМИНАНИЕ ЗАБЛОКИРОВАНО: '{new_summary}' слишком похоже на существующее '{existing_summary}' (схожесть {similarity:.2f})")
+                                    return
                     # ВРЕМЕННО ОТКЛЮЧЕНО ИЗ-ЗА ОШИБКИ ОТСУТСТВИЯ РАСШИРЕНИЯ pg_trgm
                     # cur.execute("""
                     #     SELECT id, reminder_context_summary, reminder_datetime
@@ -1151,6 +1220,19 @@ def create_or_update_reminder(conn, conv_id, reminder_data, created_by_conv_id=N
                 logging.info(f"✅ СОЗДАНО НАПОМИНАНИЕ ID={reminder_id} для target_conv_id={target_conv_id} (создал conv_id={created_by_conv_id or conv_id})")
                 
             elif action == 'cancel':
+                # ===== ЗАЩИТА ОТ НЕПРАВОМЕРНОЙ ОТМЕНЫ =====
+                # Проверяем права на отмену напоминаний
+                if target_conv_id != conv_id and target_conv_id != ADMIN_CONV_ID:
+                    logging.error(f"БЛОКИРОВКА ОТМЕНЫ: Пользователь conv_id={conv_id} пытается отменить напоминания для target_conv_id={target_conv_id}. Это запрещено.")
+                    return
+                
+                # Если администратор отменяет чужие напоминания, требуем explicit разрешение
+                if conv_id == ADMIN_CONV_ID and target_conv_id != ADMIN_CONV_ID:
+                    cancellation_reason = reminder_data.get('cancellation_reason', '')
+                    if f"conv_id: {target_conv_id}" not in cancellation_reason and f"conv_id:{target_conv_id}" not in cancellation_reason:
+                        logging.error(f"БЛОКИРОВКА ОТМЕНЫ АДМИНОМ: Admin conv_id={conv_id} пытается отменить напоминания для target_conv_id={target_conv_id}, но в причине нет явного 'conv_id: {target_conv_id}'.")
+                        return
+                
                 # Отменяем активные напоминания
                 cancellation_source = 'admin' if conv_id == ADMIN_CONV_ID else 'user'
                 
@@ -1271,6 +1353,13 @@ def _activate_reminders_async(conv_id, activated_contexts, activated_ids):
     conn = None
     try:
         conn = get_db_connection()
+        
+        # === УМНАЯ ДЕДУПЛИКАЦИЯ: Отменяем все похожие напоминания ===
+        additional_cancelled_ids = _cancel_similar_reminders(conn, conv_id, activated_contexts)
+        if additional_cancelled_ids:
+            activated_ids.extend(additional_cancelled_ids)
+            logging.info(f"ДЕДУПЛИКАЦИЯ ПРИ АКТИВАЦИИ: Дополнительно отменено {len(additional_cancelled_ids)} похожих напоминаний для conv_id={conv_id}")
+        
         combined_context = f"У вас несколько сработавших напоминаний:\n\n" + "\n".join([f"- {ctx}" for ctx in activated_contexts])
 
         port = os.environ.get("PORT", 8080)
@@ -1307,6 +1396,60 @@ def _activate_reminders_async(conv_id, activated_contexts, activated_ids):
     finally:
         if conn:
             conn.close()
+
+def _cancel_similar_reminders(conn, conv_id, activated_contexts):
+    """
+    Находит и отменяет похожие активные напоминания для предотвращения дублирования.
+    Возвращает список ID отмененных напоминаний.
+    """
+    cancelled_ids = []
+    try:
+        # Получаем все активные напоминания для этого пользователя
+        with conn.cursor(cursor_factory=psycopg2.extras.DictCursor) as cur:
+            cur.execute("""
+                SELECT id, reminder_context_summary, reminder_datetime
+                FROM reminders 
+                WHERE conv_id = %s AND status = 'active'
+                ORDER BY reminder_datetime
+            """, (conv_id,))
+            
+            active_reminders = cur.fetchall()
+            
+            # Для каждого активированного контекста ищем похожие
+            for activated_context in activated_contexts:
+                activated_words = set(activated_context.lower().split())
+                
+                for reminder in active_reminders:
+                    if reminder['id'] in cancelled_ids:
+                        continue  # Уже отменено
+                    
+                    reminder_words = set(reminder['reminder_context_summary'].lower().split())
+                    
+                    # Проверяем схожесть (используем тот же алгоритм, что и при создании)
+                    if activated_words and reminder_words:
+                        similarity = len(activated_words & reminder_words) / len(activated_words | reminder_words)
+                        
+                        if similarity > 0.6:  # Если схожесть > 60%
+                            # Отменяем похожее напоминание
+                            cur.execute("""
+                                UPDATE reminders 
+                                SET status = 'cancelled_by_deduplication', 
+                                    cancellation_reason = %s
+                                WHERE id = %s
+                            """, (
+                                f"Автоотмена похожего напоминания при активации. Схожесть: {similarity:.2f}",
+                                reminder['id']
+                            ))
+                            cancelled_ids.append(reminder['id'])
+                            logging.info(f"ДЕДУПЛИКАЦИЯ: Отменено похожее напоминание ID={reminder['id']} (схожесть {similarity:.2f})")
+            
+            conn.commit()
+            
+    except Exception as e:
+        logging.error(f"Ошибка при поиске похожих напоминаний для conv_id={conv_id}: {e}")
+        conn.rollback()
+    
+    return cancelled_ids
 
 def _revert_reminder_statuses(reminder_ids, reason):
     """
@@ -1689,6 +1832,14 @@ def process_new_message(conv_id):
     Обрабатывает новое сообщение для поиска договоренностей о напоминании.
     Вызывается из main.py после получения сообщения от пользователя.
     """
+    # === ЗАЩИТА ОТ КОНКУРЕНТНЫХ ВЫЗОВОВ ===
+    if conv_id in reminder_creation_locks:
+        logging.info(f"БЛОКИРОВКА КОНКУРЕНТНОГО ВЫЗОВА: Обработка напоминаний для conv_id={conv_id} уже выполняется. Пропускаем.")
+        return
+    
+    # Устанавливаем блокировку
+    reminder_creation_locks[conv_id] = True
+    
     conn = None
     try:
         # Инициализация модели
@@ -1722,6 +1873,10 @@ def process_new_message(conv_id):
     finally:
         if conn:
             conn.close()
+        # Снимаем блокировку
+        if conv_id in reminder_creation_locks:
+            del reminder_creation_locks[conv_id]
+            logging.debug(f"СНЯТИЕ БЛОКИРОВКИ: Обработка напоминаний для conv_id={conv_id} завершена.")
 
 # --- ИНИЦИАЛИЗАЦИЯ ПРИ ИМПОРТЕ ---
 

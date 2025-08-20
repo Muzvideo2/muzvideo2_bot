@@ -1593,6 +1593,7 @@ def fetch_and_update_vk_profile(conn, conv_id):
             'city': user_data.get('city', {}).get('title'),
             'birth_day': None,
             'birth_month': None,
+            'can_write': True,  # ВАЖНО: при создании карточки клиента всегда ставим True, т.к. клиент сам написал
             'last_updated': datetime.now(timezone.utc)
         }
 
@@ -1605,8 +1606,8 @@ def fetch_and_update_vk_profile(conn, conv_id):
 
         # Используем INSERT ... ON CONFLICT (UPSERT) для атомарного создания/обновления
         upsert_query = """
-        INSERT INTO user_profiles (conv_id, first_name, last_name, screen_name, sex, city, birth_day, birth_month, last_updated)
-        VALUES (%(conv_id)s, %(first_name)s, %(last_name)s, %(screen_name)s, %(sex)s, %(city)s, %(birth_day)s, %(birth_month)s, %(last_updated)s)
+        INSERT INTO user_profiles (conv_id, first_name, last_name, screen_name, sex, city, birth_day, birth_month, can_write, last_updated)
+        VALUES (%(conv_id)s, %(first_name)s, %(last_name)s, %(screen_name)s, %(sex)s, %(city)s, %(birth_day)s, %(birth_month)s, %(can_write)s, %(last_updated)s)
         ON CONFLICT (conv_id) DO UPDATE SET
             first_name = EXCLUDED.first_name,
             last_name = EXCLUDED.last_name,
@@ -1615,6 +1616,7 @@ def fetch_and_update_vk_profile(conn, conv_id):
             city = EXCLUDED.city,
             birth_day = EXCLUDED.birth_day,
             birth_month = EXCLUDED.birth_month,
+            can_write = EXCLUDED.can_write,
             last_updated = EXCLUDED.last_updated;
         """
         

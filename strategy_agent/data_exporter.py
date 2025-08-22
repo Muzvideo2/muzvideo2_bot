@@ -136,7 +136,7 @@ def transform_client_data(client_data, purchased_products, recent_messages):
     Args:
         client_data (dict): Данные клиента из БД
         purchased_products (list): Список купленных продуктов
-        recent_messages (list): Список последних сообщений
+recent_messages (list): Список последних сообщений
         
     Returns:
         dict: Преобразованные данные клиента
@@ -225,9 +225,6 @@ def main(conv_id):
         # 6. Вывод пути к файлу
         print(f"Данные клиента успешно экспортированы в файл: {filepath}")
         logger.info(f"Экспорт данных завершен. Файл: {filepath}")
-        
-        # 7. ВАЖНО: Возвращаем путь к файлу для оркестратора
-        return filepath
         
     except Exception as e:
         logger.error(f"Ошибка при экспорте данных клиента: {e}")

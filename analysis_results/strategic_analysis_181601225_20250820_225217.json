@@ -1,0 +1,57 @@
+{
+  "lead_qualification": "горячий",
+  "funnel_stage": "решение принято (ожидаем оплату)",
+  "client_level": ["продолжающий"],
+  "learning_goals": ["импровизация", "аккомпанемент", "сочинение музыки"],
+  "client_pains": ["нет времени", "ожидание поступления денег"],
+  "activity_analysis": {
+    "message_frequency": "средняя",
+    "response_time": "быстро",
+    "initiative_level": "активный",
+    "question_quality": "детальные"
+  },
+  "conversation_gaps": {
+    "has_long_pauses": true,
+    "last_contact_days": 1200,
+    "needs_reengagement": true,
+    "gap_reasons": ["длительный перерыв", "старые данные"]
+  },
+  "return_strategies": {
+    "recommended_approach": "Мягкое напоминание о школе с акцентом на новые возможности",
+    "triggers_to_use": ["новые курсы", "специальные предложения"],
+    "personal_offers": ["скидка на курсы импровизации", "бонусные материалы"],
+    "urgency_level": "средний"
+  },
+  "optimal_reminder_timing": {
+    "contact_in_days": 1,
+    "best_time_of_day": "вечер",
+    "contact_reason": "Напоминание о школе фортепиано",
+    "message_tone": "дружелюбный"
+  },
+  "product_recommendations": {
+    "primary_courses": ["Импровизация с нуля", "Мастер Аранжировки"],
+    "course_bundles": ["6 шагов", "Всё включено"],
+    "discount_needed": true,
+    "alternative_options": ["Блюз Мастер", "Баллад Мастер"]
+  },
+  "psychological_profile": {
+    "personality_type": "практик",
+    "motivation_factors": ["музыкальная свобода", "творческое самовыражение"],
+    "fears_and_doubts": ["нехватка времени", "сложность обучения"],
+    "communication_preferences": ["понятные объяснения", "практические советы"]
+  },
+  "communication_strategy": {
+    "recommended_tone": "дружелюбный и поддерживающий",
+    "key_arguments": ["гибкий график обучения", "проверенная методика"],
+    "emphasize": ["короткие эффективные занятия", "поддержка сообщества"],
+    "avoid": ["давление", "сложные технические термины"],
+    "personalization_tips": ["упомянуть интерес к импровизации", "подчеркнуть творческие аспекты"]
+  },
+  "dialogue_summary": "Клиент Galina проявляла активный интерес к обучению фортепиано, посещала вебинары, выражала готовность к покупке курса, но ожидала поступления денег. Интересуется импровизацией, аккомпанементом и сочинением музыки. Был длительный перерыв в общении.",
+  "action_priority": "высокий",
+  "next_steps": [
+    "Отправить мягкое напоминание о школе",
+    "Предложить актуальные курсы по импровизации",
+    "Узнать о текущем интересе к обучению"
+  ]
+}

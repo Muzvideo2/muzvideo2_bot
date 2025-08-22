@@ -1,0 +1,16 @@
+{
+  "lead_qualification": "горячий",
+  "funnel_stage": "решение принято",
+  "client_level": [
+    "продолжающий"
+  ],
+  "learning_goals": [
+    "импровизация",
+    "аккомпанемент",
+    "сочинение музыки"
+  ],
+  "client_pains": [
+    "нет времени"
+  ],
+  "action_priority": "высокий"
+}

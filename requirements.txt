@@ -10,3 +10,5 @@ APScheduler
 google-cloud-aiplatform
 pytz
 google-oauth2-tool
+google-generativeai
+python-dotenv

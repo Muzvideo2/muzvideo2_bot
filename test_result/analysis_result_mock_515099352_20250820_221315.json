@@ -1,0 +1,124 @@
+{
+  "client_id": "515099352",
+  "analysis_timestamp": "2025-08-20T22:13:15.279449",
+  "client_qualification": {
+    "current_level": "горячий",
+    "confidence_score": 0.85,
+    "reasoning": "Клиент проявляет высокий интерес, активно участвует в диалоге, имеет музыкальное образование"
+  },
+  "funnel_stage_analysis": {
+    "current_stage": "сделано предложение по продуктам",
+    "next_stage": "принятие решения",
+    "stage_confidence": 0.8,
+    "barriers_to_next_stage": [
+      "цена",
+      "время на обучение"
+    ]
+  },
+  "psychological_profile": {
+    "personality_type": "perfectionist_learner",
+    "primary_motivation": "самореализация через музыку",
+    "communication_style": "эмоциональный, открытый",
+    "decision_making_style": "обдуманный, требует времени",
+    "learning_style": "практический с теоретической базой"
+  },
+  "activity_analysis": {
+    "last_activity": "2025-08-19",
+    "message_frequency": "средняя",
+    "response_time": "быстрый",
+    "initiative_level": "высокий",
+    "engagement_trend": "растущий"
+  },
+  "conversation_gaps": {
+    "longest_gap": "4 месяца",
+    "recent_gap_duration": "0 дней",
+    "gap_pattern": "периодические длительные паузы",
+    "reasons": [
+      "сомнения в цене",
+      "внешние обстоятельства (увольнение)"
+    ]
+  },
+  "pain_points_analysis": {
+    "primary_pains": [
+      "потеря навыков ('все забыл')",
+      "отсутствие 'живой' игры",
+      "чувство стыда от неумения импровизировать",
+      "профессиональное выгорание"
+    ],
+    "emotional_state": "разочарование с надеждой на возрождение",
+    "urgency_level": "высокая",
+    "pain_intensity": 8
+  },
+  "interests_analysis": {
+    "primary_interests": [
+      "импровизация",
+      "аккомпанемент",
+      "аранжировка",
+      "игра без нот",
+      "свободная игра"
+    ],
+    "learning_goals": "восстановить навыки + освоить новые техники",
+    "musical_preferences": "современная музыка, личное творчество",
+    "commitment_level": "высокий"
+  },
+  "return_strategy": {
+    "recommended_actions": [
+      "Персональное предложение со скидкой учитывая ситуацию с увольнением",
+      "Акцент на эмоциональной составляюще - 'вернуть жизнь в игру'",
+      "Предложить пробный урок или консультацию",
+      "Показать конкретные результаты других учеников с похожим бэкграундом"
+    ],
+    "key_insights": [
+      "Клиент ищет не просто обучение, а возрождение страсти к музыке",
+      "Важна эмоциональная поддержка и понимание",
+      "Цена вторична после установления ценности"
+    ],
+    "approach_style": "эмпатичный, поддерживающий",
+    "content_focus": "практические результаты, эмоции от игры"
+  },
+  "next_contact_timing": {
+    "recommended_timing": "1-2 дня",
+    "optimal_time": "вечернее время (18-20)",
+    "contact_method": "личное сообщение",
+    "urgency_reason": "эмоциональный подъем после последнего сообщения"
+  },
+  "product_recommendations": {
+    "primary_recommendation": "Базовый курс свободной игры",
+    "secondary_options": [
+      "Курс импровизации",
+      "Индивидуальные занятия"
+    ],
+    "pricing_strategy": "flexible_with_discount",
+    "value_proposition": "возрождение музыкальной страсти"
+  },
+  "risk_assessment": {
+    "churn_probability": 0.3,
+    "engagement_level": "high",
+    "conversion_probability": 0.7,
+    "risk_factors": [
+      "финансовые ограничения после увольнения",
+      "предыдущие длительные паузы"
+    ],
+    "protection_measures": [
+      "гибкие условия оплаты",
+      "дополнительная поддержка в начале обучения"
+    ]
+  },
+  "strategic_recommendations": {
+    "immediate_actions": [
+      "Отправить персональное сообщение в течение 24-48 часов",
+      "Предложить специальные условия",
+      "Организовать пробное занятие"
+    ],
+    "long_term_strategy": "nurturing с фокусом на эмоциональную составляющую",
+    "success_metrics": [
+      "отклик на следующее сообщение",
+      "согласие на пробное занятие",
+      "конверсия в течение 2 недель"
+    ],
+    "alternative_scenarios": [
+      "если отказ - перевести в долгосрочный nurturing",
+      "если молчание - повторный контакт через неделю"
+    ]
+  }
+}

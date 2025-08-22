@@ -1,0 +1,32 @@
+{
+  "test_name": "REAL_CLIENT_TEST_181601225",
+  "conv_id": 181601225,
+  "start_time": "2025-08-20T16:48:19.435024+00:00",
+  "steps": {
+    "export_client_data": {
+      "status": "SUCCESS",
+      "exported_file": "exported_data\\client_data_181601225_20250820_224826.json",
+      "client_data_summary": {
+        "client_id": "181601225",
+        "messages_count": 30,
+        "purchased_products": [],
+        "funnel_stage": "решение принято (ожидаем оплату)",
+        "client_activity": null
+      }
+    },
+    "analyze_client_card": {
+      "status": "FAILED",
+      "error": "Не удалось найти файл результата анализа",
+      "stdout": "Анализируем клиента из файла: exported_data\\client_data_181601225_20250820_224826.json\nЗапускаем AI анализ клиента 181601225...\nОшибка: '\\n  \"lead_qualification\"'\n"
+    }
+  },
+  "files_created": [
+    "exported_data\\client_data_181601225_20250820_224826.json"
+  ],
+  "errors": [
+    "Не удалось найти файл результата анализа"
+  ],
+  "success": false,
+  "end_time": "2025-08-20T16:48:33.263925+00:00",
+  "duration_seconds": 13.828901
+}

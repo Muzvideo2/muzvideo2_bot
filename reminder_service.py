@@ -43,6 +43,10 @@ from operator import itemgetter
 # Словарь блокировок для предотвращения конкурентного создания напоминаний
 reminder_creation_locks = {}
 
+# Словарь для отслеживания неудачных попыток активации напоминаний
+# Формат: {reminder_id: {"attempts": count, "last_error": "error_message", "first_attempt": datetime}}
+failed_activation_attempts = {}
+
 try:
     import vertexai
     from vertexai.generative_models import GenerativeModel
@@ -70,6 +74,11 @@ ACTIVATION_TIMEOUT = 120  # 2 минуты
 
 # Настройки логирования
 LOG_FILE_NAME = "reminder_service.log"
+
+# Настройки для уведомлений в Telegram
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
+MAX_RETRY_ATTEMPTS = 3  # Максимальное количество попыток перед отправкой уведомления
 
 # Словарь для определения часового пояса по городу
 CITY_TIMEZONE_MAP = {
@@ -667,6 +676,90 @@ def get_moscow_time():
     moscow_tz = pytz.timezone('Europe/Moscow')
     return datetime.now(moscow_tz)
 
+def send_telegram_notification(message):
+    """
+    Отправляет уведомление в Telegram администратору.
+    """
+    if not TELEGRAM_TOKEN or not ADMIN_CHAT_ID:
+        logging.warning("TELEGRAM УВЕДОМЛЕНИЕ: Не настроены TELEGRAM_TOKEN или ADMIN_CHAT_ID")
+        return False
+    
+    try:
+        telegram_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        
+        payload = {
+            "chat_id": ADMIN_CHAT_ID,
+            "text": f"🚨 ОШИБКА СЕРВИСА НАПОМИНАНИЙ\n\n{message}",
+            "parse_mode": "HTML"
+        }
+        
+        response = requests.post(telegram_url, json=payload, timeout=10)
+        response.raise_for_status()
+        
+        logging.info(f"TELEGRAM УВЕДОМЛЕНИЕ: Успешно отправлено сообщение в чат {ADMIN_CHAT_ID}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"TELEGRAM УВЕДОМЛЕНИЕ: Ошибка отправки в Telegram: {e}")
+        return False
+
+def track_activation_failure(reminder_id, error_message):
+    """
+    Отслеживает неудачные попытки активации напоминания.
+    Отправляет уведомление в Telegram после MAX_RETRY_ATTEMPTS неудачных попыток.
+    """
+    global failed_activation_attempts
+    
+    current_time = datetime.now(timezone.utc)
+    
+    if reminder_id not in failed_activation_attempts:
+        failed_activation_attempts[reminder_id] = {
+            "attempts": 1,
+            "last_error": error_message,
+            "first_attempt": current_time
+        }
+        logging.info(f"МОНИТОРИНГ ОШИБОК: Первая неудачная попытка активации для reminder_id={reminder_id}")
+    else:
+        failed_activation_attempts[reminder_id]["attempts"] += 1
+        failed_activation_attempts[reminder_id]["last_error"] = error_message
+        
+        attempts = failed_activation_attempts[reminder_id]["attempts"]
+        logging.warning(f"МОНИТОРИНГ ОШИБОК: Попытка #{attempts} активации для reminder_id={reminder_id} неудачна")
+        
+        # Отправляем уведомление после MAX_RETRY_ATTEMPTS попыток
+        if attempts >= MAX_RETRY_ATTEMPTS:
+            first_attempt = failed_activation_attempts[reminder_id]["first_attempt"]
+            duration = current_time - first_attempt
+            
+            message = (
+                f"<b>Напоминание ID {reminder_id} не удается активировать</b>\n\n"
+                f"📊 <b>Статистика:</b>\n"
+                f"• Количество попыток: {attempts}\n"
+                f"• Первая попытка: {first_attempt.strftime('%Y-%m-%d %H:%M:%S')} UTC\n"
+                f"• Длительность проблемы: {duration}\n\n"
+                f"❌ <b>Последняя ошибка:</b>\n"
+                f"<code>{error_message}</code>\n\n"
+                f"⚠️ <b>Действие:</b> Требуется ручная проверка сервиса напоминаний"
+            )
+            
+            if send_telegram_notification(message):
+                logging.info(f"МОНИТОРИНГ ОШИБОК: Отправлено уведомление в Telegram для reminder_id={reminder_id}")
+                # Удаляем из отслеживания после отправки уведомления
+                del failed_activation_attempts[reminder_id]
+            else:
+                logging.error(f"МОНИТОРИНГ ОШИБОК: Не удалось отправить уведомление в Telegram для reminder_id={reminder_id}")
+
+def clear_activation_success(reminder_id):
+    """
+    Очищает счетчик неудачных попыток при успешной активации напоминания.
+    """
+    global failed_activation_attempts
+    
+    if reminder_id in failed_activation_attempts:
+        attempts = failed_activation_attempts[reminder_id]["attempts"]
+        logging.info(f"МОНИТОРИНГ ОШИБОК: Напоминание reminder_id={reminder_id} успешно активировано после {attempts} неудачных попыток")
+        del failed_activation_attempts[reminder_id]
+
 def parse_datetime_with_timezone(datetime_str, client_timezone='Europe/Moscow'):
     """Парсит строку даты/времени с учетом часового пояса клиента."""
     try:
@@ -1209,16 +1302,42 @@ def _activate_reminders_async(conv_id, activated_contexts, activated_ids):
             conn.commit()
             logging.info(f"АСИНХРОННАЯ АКТИВАЦИЯ для conv_id={conv_id}: Успешно обновлены статусы для {len(activated_ids)} напоминаний.")
             
+            # Очищаем счетчики ошибок при успешной активации
+            for reminder_id in activated_ids:
+                clear_activation_success(reminder_id)
+            
+        # ВАЖНО: После успешной активации очищаем все просроченные напоминания
+        logging.info(f"АСИНХРОННАЯ АКТИВАЦИЯ для conv_id={conv_id}: Запускаю очистку просроченных напоминаний...")
+        cleanup_expired_reminders()
+            
     except requests.exceptions.Timeout as e:
+        error_message = f"Таймаут HTTP запроса: {e}"
         logging.error(f"АСИНХРОННАЯ АКТИВАЦИЯ для conv_id={conv_id}: ТАЙМАУТ. Напоминания {activated_ids} будут возвращены в 'active'. Ошибка: {e}")
+        
+        # Отслеживаем ошибки для каждого напоминания
+        for reminder_id in activated_ids:
+            track_activation_failure(reminder_id, error_message)
+            
         _revert_reminder_statuses(activated_ids, "timeout")
         
     except requests.exceptions.RequestException as e:
+        error_message = f"Ошибка HTTP запроса: {e}"
         logging.error(f"АСИНХРОННАЯ АКТИВАЦИЯ для conv_id={conv_id}: ОШИБКА HTTP. Напоминания {activated_ids} будут возвращены в 'active'. Ошибка: {e}")
+        
+        # Отслеживаем ошибки для каждого напоминания
+        for reminder_id in activated_ids:
+            track_activation_failure(reminder_id, error_message)
+            
         _revert_reminder_statuses(activated_ids, f"http_error: {e}")
         
     except Exception as e:
+        error_message = f"Критическая ошибка асинхронной активации: {e}"
         logging.error(f"АСИНХРОННАЯ АКТИВАЦИЯ для conv_id={conv_id}: КРИТИЧЕСКАЯ ОШИБКА. Напоминания {activated_ids} будут возвращены в 'active'. Ошибка: {e}", exc_info=True)
+        
+        # Отслеживаем ошибки для каждого напоминания
+        for reminder_id in activated_ids:
+            track_activation_failure(reminder_id, error_message)
+            
         _revert_reminder_statuses(activated_ids, f"critical_error: {e}")
         
     finally:
@@ -1402,9 +1521,17 @@ def process_single_reminder(reminder):
                     "UPDATE reminders SET status = 'done' WHERE id = %s",
                     (reminder['id'],)
                 )
+                
+                # Очищаем счетчик ошибок при успешной активации
+                clear_activation_success(reminder['id'])
 
             except requests.exceptions.RequestException as e:
+                error_message = f"Ошибка HTTP запроса: {e}"
                 logging.error(f"ПРЯМАЯ АКТИВАЦИЯ ID={reminder['id']}: ОШИБКА. Не удалось вызвать эндпоинт активации. Напоминание НЕ будет активировано в этот раз. Ошибка: {e}")
+                
+                # Отслеживаем неудачную попытку активации
+                track_activation_failure(reminder['id'], error_message)
+                
                 # При ошибке напоминание останется в статусе 'in_progress', 
                 # и блок except выше вернет его в 'active'
                 raise  # Передаем исключение выше, чтобы сработал rollback и возврат статуса
@@ -1412,8 +1539,17 @@ def process_single_reminder(reminder):
             conn.commit()
             logging.info(f"ID={reminder['id']}: Транзакция успешно завершена.")
             
+            # ВАЖНО: После успешной активации очищаем все просроченные напоминания  
+            logging.info(f"ПРЯМАЯ АКТИВАЦИЯ ID={reminder['id']}: Запускаю очистку просроченных напоминаний...")
+            cleanup_expired_reminders()
+            
     except Exception as e:
+        error_message = f"Критическая ошибка: {e}"
         logging.error(f"КРИТИЧЕСКАЯ ОШИБКА ID={reminder['id']}: Произошла непредвиденная ошибка. Откатываю транзакцию. Статус будет возвращен в 'active'. Ошибка: {e}", exc_info=True)
+        
+        # Отслеживаем неудачную попытку активации
+        track_activation_failure(reminder['id'], error_message)
+        
         if conn:
             conn.rollback()
             # Возвращаем статус обратно в active при ошибке
@@ -1426,6 +1562,43 @@ def process_single_reminder(reminder):
                     conn.commit()
             except:
                 pass
+    finally:
+        if conn:
+            conn.close()
+
+def cleanup_expired_reminders():
+    """
+    Очищает просроченные напоминания - переводит из статуса 'active' в 'done'
+    все напоминания, время которых уже прошло.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        
+        with conn.cursor() as cur:
+            # Находим все активные напоминания, время которых уже прошло
+            cur.execute("""
+                UPDATE reminders 
+                SET status = 'done', 
+                    cancellation_reason = 'Автоматически завершено как просроченное'
+                WHERE status = 'active' AND reminder_datetime <= NOW()
+                RETURNING id, conv_id, reminder_datetime, reminder_context_summary
+            """)
+            
+            updated_reminders = cur.fetchall()
+            conn.commit()
+            
+            if updated_reminders:
+                logging.info(f"ОЧИСТКА ПРОСРОЧЕННЫХ: Переведено в статус 'done' {len(updated_reminders)} просроченных напоминаний:")
+                for reminder in updated_reminders:
+                    logging.info(f"  - ID={reminder[0]}, conv_id={reminder[1]}, время={reminder[2]}, описание='{reminder[3]}'")
+            else:
+                logging.debug("ОЧИСТКА ПРОСРОЧЕННЫХ: Просроченных активных напоминаний не найдено")
+                
+    except Exception as e:
+        logging.error(f"Ошибка при очистке просроченных напоминаний: {e}", exc_info=True)
+        if conn:
+            conn.rollback()
     finally:
         if conn:
             conn.close()

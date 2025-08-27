@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Анализатор карточек клиентов с расширенной функциональностью
-Версия 2.0 - Полная переработка с интеграцией БД и напоминаний
+Версия 2.1 - Добавлена логика скидок на день рождения
 """
 
 import os
@@ -15,6 +15,106 @@ from typing import Dict, List, Optional, Any, Tuple
 import vertexai
 from vertexai.generative_models import GenerativeModel
 from google.oauth2 import service_account
+
+# Импорт функций для расчета скидки на день рождения
+try:
+    from main import calculate_birthday_discount_status
+except ImportError:
+    # Если не можем импортировать, определяем функцию локально
+    def calculate_birthday_discount_status(birth_day, birth_month):
+        """
+        Локальная копия функции для расчета статуса скидки на день рождения.
+        """
+        if not birth_day or not birth_month:
+            return {
+                'status': 'not_applicable',
+                'message': '',
+                'days_until_birthday': None,
+                'birthday_formatted': ''
+            }
+        
+        try:
+            current_date = datetime.now()
+            current_year = current_date.year
+            
+            # Создаем дату дня рождения в текущем году
+            try:
+                birthday_this_year = datetime(current_year, birth_month, birth_day)
+            except ValueError:
+                # Обработка случая 29 февраля в невисокосном году
+                if birth_month == 2 and birth_day == 29:
+                    birthday_this_year = datetime(current_year, 2, 28)
+                else:
+                    return {
+                        'status': 'not_applicable',
+                        'message': '',
+                        'days_until_birthday': None,
+                        'birthday_formatted': ''
+                    }
+            
+            current_date_start = current_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            days_until_birthday_this_year = (birthday_this_year - current_date_start).days
+            
+            if -5 <= days_until_birthday_this_year <= 5:
+                days_until_birthday = days_until_birthday_this_year
+                actual_birthday = birthday_this_year
+            else:
+                if birthday_this_year < current_date_start:
+                    try:
+                        actual_birthday = datetime(current_year + 1, birth_month, birth_day)
+                    except ValueError:
+                        if birth_month == 2 and birth_day == 29:
+                            actual_birthday = datetime(current_year + 1, 2, 28)
+                    days_until_birthday = (actual_birthday - current_date_start).days
+                else:
+                    days_until_birthday = days_until_birthday_this_year
+                    actual_birthday = birthday_this_year
+            
+            birthday_formatted = f"{birth_day}.{birth_month:02d}"
+            
+            if -5 <= days_until_birthday <= 5:
+                if days_until_birthday == 0:
+                    status_text = "день рождения"
+                elif days_until_birthday > 0:
+                    status_text = f"через {days_until_birthday} дн. ({birthday_formatted}) будет день рождения"
+                else:
+                    status_text = f"{abs(days_until_birthday)} дн. назад ({birthday_formatted}) был день рождения"
+                
+                message = f"У клиента {status_text}. Прямо сейчас для него действует скидка 35% на любой курс или набор. Скидка действует 10 дней: 5 дней до дня рождения и 5 дней после. Промокод DR-2025 действует только в эти 10 дней."
+                
+                return {
+                    'status': 'active',
+                    'message': message,
+                    'days_until_birthday': days_until_birthday,
+                    'birthday_formatted': birthday_formatted
+                }
+            
+            elif 6 <= days_until_birthday <= 20:
+                message = f"У клиента через {days_until_birthday} дней ({birthday_formatted}) будет день рождения. Скидка по случаю дня рождения составит 35% на любой курс или набор. Скидка работает 10 дней: 5 дней до дня рождения и 5 дней после. Промокод DR-2025 действует только в эти 10 дней."
+                
+                return {
+                    'status': 'upcoming',
+                    'message': message,
+                    'days_until_birthday': days_until_birthday,
+                    'birthday_formatted': birthday_formatted
+                }
+            
+            else:
+                return {
+                    'status': 'not_applicable',
+                    'message': 'У клиента день рождения не в ближайшее время. Скидка по случаю дня рождения не действует.',
+                    'days_until_birthday': days_until_birthday,
+                    'birthday_formatted': birthday_formatted
+                }
+        
+        except Exception as e:
+            logging.error(f"Ошибка при расчете статуса скидки на день рождения: {e}")
+            return {
+                'status': 'not_applicable',
+                'message': '',
+                'days_until_birthday': None,
+                'birthday_formatted': ''
+            }
 
 # Настройка логирования
 logging.basicConfig(
@@ -43,6 +143,9 @@ CARD_ANALYSIS_PROMPT = """
 
 === ДАННЫЕ КЛИЕНТА ===
 {client_data}
+
+=== ИНФОРМАЦИЯ О СКИДКЕ НА ДЕНЬ РОЖДЕНИЯ ===
+{birthday_discount_message}
 
 === ТРЕБОВАНИЯ К АНАЛИЗУ ===
 
@@ -312,15 +415,28 @@ class ClientCardAnalyzer:
             raise
     
     def analyze_client_card(self, client_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Анализ карточки клиента с помощью AI"""
+        """Анализ карточки клиента с помощью AI и скидкой на день рождения"""
         try:
+            # Рассчитываем скидку на день рождения
+            birth_day = client_data.get('birth_day')
+            birth_month = client_data.get('birth_month')
+            
+            birthday_status = calculate_birthday_discount_status(birth_day, birth_month)
+            birthday_discount_message = birthday_status.get('message', '')
+            
+            if not birthday_discount_message:
+                birthday_discount_message = "Нет активных скидок на день рождения."
+            
+            logging.info(f"Статус скидки на ДР: {birthday_status.get('status')}, сообщение: {birthday_discount_message[:100]}...")
+            
             # Подготовка данных для промпта
             client_data_str = json.dumps(client_data, ensure_ascii=False, indent=2, default=str)
             
-            # Формирование промпта
+            # Формирование промпта с скидкой на день рождения
             prompt = CARD_ANALYSIS_PROMPT.format(
                 products_info=self.products_info,
-                client_data=client_data_str
+                client_data=client_data_str,
+                birthday_discount_message=birthday_discount_message
             )
             
             # Запрос к AI
@@ -385,7 +501,15 @@ class ClientCardAnalyzer:
             logging.info(f"Извлеченный JSON: {json_str[:200]}...")
             analysis_result = json.loads(json_str)
             
-            logging.info(f"Анализ клиента {client_data.get('conv_id')} завершен успешно")
+            # Добавляем информацию о скидке на день рождения в результат
+            analysis_result["birthday_discount_info"] = {
+                "status": birthday_status.get('status'),
+                "message": birthday_discount_message,
+                "days_until_birthday": birthday_status.get('days_until_birthday'),
+                "birthday_formatted": birthday_status.get('birthday_formatted')
+            }
+            
+            logging.info(f"Анализ клиента {client_data.get('conv_id')} завершен успешно (с учетом ДР)")
             return analysis_result
             
         except json.JSONDecodeError as e:
@@ -393,13 +517,23 @@ class ClientCardAnalyzer:
             logging.error(f"Извлеченный JSON: '{json_str}'")
             logging.error(f"Полный ответ AI: {response_text}")
             
-            # Fallback: создаем базовый результат анализа
+            # Fallback: создаем базовый результат анализа с ДР
+            birth_day = client_data.get('birth_day')
+            birth_month = client_data.get('birth_month')
+            birthday_status = calculate_birthday_discount_status(birth_day, birth_month)
+            
             fallback_result = {
                 "lead_qualification": "тёплый",
                 "funnel_stage": "Изучение предложения",
                 "client_level": ["продолжающий"],
                 "learning_goals": ["Обучение для удовольствия"],
                 "client_pains": ["Нет времени на регулярные занятия"],
+                "birthday_discount_info": {
+                    "status": birthday_status.get('status'),
+                    "message": birthday_status.get('message', ''),
+                    "days_until_birthday": birthday_status.get('days_until_birthday'),
+                    "birthday_formatted": birthday_status.get('birthday_formatted')
+                },
                 "activity_analysis": {
                     "message_frequency": "средняя",
                     "response_time": "средне",

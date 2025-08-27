@@ -52,6 +52,7 @@ def fetch_client_data(conv_id):
     """
     logger.info(f"Извлечение данных клиента с conv_id: {conv_id}")
     
+    conn = None
     try:
         conn = get_db_connection()
         with conn.cursor(cursor_factory=DictCursor) as cur:
@@ -83,6 +84,7 @@ def fetch_purchased_products(conv_id):
     """
     logger.info(f"Извлечение списка купленных продуктов для conv_id: {conv_id}")
     
+    conn = None
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
@@ -109,6 +111,7 @@ def fetch_recent_messages(conv_id, limit=30):
     """
     logger.info(f"Извлечение последних {limit} сообщений для conv_id: {conv_id}")
     
+    conn = None
     try:
         conn = get_db_connection()
         with conn.cursor() as cur:
@@ -144,21 +147,42 @@ def transform_client_data(client_data, purchased_products, recent_messages):
     logger.info("Преобразование данных клиента в формат JSON")
     
     # Преобразуем данные в формат, ожидаемый анализатором
+    # Включаем ВСЕ поля из профиля клиента для полного анализа
     transformed_data = {
+        "conv_id": client_data.get("conv_id"),
         "client_id": str(client_data.get("conv_id", "")),
+        
+        # Демографические данные из VK API
+        "first_name": client_data.get("first_name"),
+        "last_name": client_data.get("last_name"),
+        "screen_name": client_data.get("screen_name"),
+        "sex": client_data.get("sex"),
+        "city": client_data.get("city"),
+        "birth_day": client_data.get("birth_day"),
+        "birth_month": client_data.get("birth_month"),
+        "can_write": client_data.get("can_write"),
+        
+        # Аналитические данные
         "client_level": client_data.get("client_level", []),
         "learning_goals": client_data.get("learning_goals", []),
-        "purchased_products": purchased_products,
         "client_pains": client_data.get("client_pains", []),
         "email": client_data.get("email", []),
-        "lead_qualification": client_data.get("lead_qualification", []),
+        "lead_qualification": client_data.get("lead_qualification"),
         "funnel_stage": client_data.get("funnel_stage", ""),
-        "client_activity": client_data.get("client_activity", ""),
+        "client_activity": client_data.get("client_activity"),
         "dialogue_summary": client_data.get("dialogue_summary", ""),
+        
+        # Временные метки
+        "last_updated": client_data.get("last_updated"),
+        "created_at": client_data.get("created_at"),
+        "last_analysis_at": client_data.get("last_analysis_at"),
+        
+        # Дополнительные данные
+        "purchased_products": purchased_products,
         "recent_messages": recent_messages
     }
     
-    logger.info("Данные клиента успешно преобразованы")
+    logger.info("Данные клиента успешно преобразованы (включены все поля профиля)")
     return transformed_data
 
 def save_to_json(data, conv_id):

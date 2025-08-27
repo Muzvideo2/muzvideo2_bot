@@ -52,19 +52,25 @@ except ImportError:
                         'birthday_formatted': ''
                     }
             
+            # Рассчитываем разность в днях от текущей даты до дня рождения в этом году
             current_date_start = current_date.replace(hour=0, minute=0, second=0, microsecond=0)
             days_until_birthday_this_year = (birthday_this_year - current_date_start).days
             
+            # Если день рождения был недавно (в пределах 5 дней), используем отрицательное значение
             if -5 <= days_until_birthday_this_year <= 5:
                 days_until_birthday = days_until_birthday_this_year
                 actual_birthday = birthday_this_year
             else:
+                # Если день рождения уже прошел давно, берем следующий год
                 if birthday_this_year < current_date_start:
                     try:
                         actual_birthday = datetime(current_year + 1, birth_month, birth_day)
                     except ValueError:
                         if birth_month == 2 and birth_day == 29:
                             actual_birthday = datetime(current_year + 1, 2, 28)
+                        else:
+                            # Если не можем создать дату следующего года, используем текущий год
+                            actual_birthday = birthday_this_year
                     days_until_birthday = (actual_birthday - current_date_start).days
                 else:
                     days_until_birthday = days_until_birthday_this_year
@@ -416,6 +422,9 @@ class ClientCardAnalyzer:
     
     def analyze_client_card(self, client_data: Dict[str, Any]) -> Dict[str, Any]:
         """Анализ карточки клиента с помощью AI и скидкой на день рождения"""
+        response_text = ""
+        json_str = ""
+        
         try:
             # Рассчитываем скидку на день рождения
             birth_day = client_data.get('birth_day')
@@ -443,6 +452,10 @@ class ClientCardAnalyzer:
             logging.info(f"Отправка запроса к Gemini для анализа клиента {client_data.get('conv_id')}")
             logging.info(f"Размер промпта: {len(prompt)} символов")
             
+            if not self.model:
+                raise RuntimeError("Модель AI не инициализирована")
+            
+            response_text = ""
             try:
                 response = self.model.generate_content(prompt)
                 response_text = response.text.strip()
@@ -456,7 +469,6 @@ class ClientCardAnalyzer:
             
             # Более надежное извлечение JSON из ответа
             import re
-            json_str = None
             
             # 1. Ищем JSON в markdown блоке
             json_match = re.search(r'```(?:json)?\s*(.*?)\s*```', response_text, re.DOTALL)
@@ -715,11 +727,16 @@ class ClientCardAnalyzer:
                         'Europe/Moscow'  # По умолчанию московское время
                     ))
                     
-                    reminder_id = cur.fetchone()[0]
-                    conn.commit()
-                    
-                    logging.info(f"Создано напоминание ID={reminder_id} для клиента {conv_id} на {reminder_datetime}")
-                    return True
+                    result = cur.fetchone()
+                    if result:
+                        reminder_id = result[0]
+                        conn.commit()
+                        
+                        logging.info(f"Создано напоминание ID={reminder_id} для клиента {conv_id} на {reminder_datetime}")
+                        return True
+                    else:
+                        logging.error(f"Не удалось получить ID созданного напоминания")
+                        return False
                     
         except Exception as e:
             logging.error(f"Ошибка создания напоминания для клиента {conv_id}: {e}")
@@ -756,7 +773,7 @@ class ClientCardAnalyzer:
             logging.error(f"Ошибка сохранения результата анализа: {e}")
             return False
     
-    def analyze_client(self, conv_id: int, save_to_file: bool = True, exported_data_file: str = None) -> Dict[str, Any]:
+    def analyze_client(self, conv_id: int, save_to_file: bool = True, exported_data_file: Optional[str] = None) -> Dict[str, Any]:
         """Полный анализ клиента с обновлением БД"""
         try:
             logging.info(f"Начинаем полный анализ клиента {conv_id}")

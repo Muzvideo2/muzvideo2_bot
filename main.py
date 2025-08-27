@@ -338,6 +338,9 @@ def calculate_birthday_discount_status(birth_day, birth_month):
                 except ValueError:
                     if birth_month == 2 and birth_day == 29:
                         actual_birthday = datetime(current_year + 1, 2, 28)
+                    else:
+                        # Если не можем создать дату следующего года, используем текущий год
+                        actual_birthday = birthday_this_year
                 days_until_birthday = (actual_birthday - current_date_start).days
             else:
                 days_until_birthday = days_until_birthday_this_year
@@ -535,8 +538,11 @@ def store_dialog_in_db(conv_id, role, message_text_with_timestamp, client_info="
     """
     Сохраняет одно сообщение в базу данных.
     """
+    conn = None
+    cur = None
+    
     if not DATABASE_URL:
-        logging.error("DATABASE_URL не настроен. Сообщение не будет сохранено в БД.")
+        logging.error("ДАТАBASE_URL не настроен. Сообщение не будет сохранено в БД.")
         return
 
     try:
@@ -1794,11 +1800,21 @@ def fetch_and_update_vk_profile(conn, conv_id):
         # Парсинг даты рождения
         if 'bdate' in user_data:
             bdate_parts = user_data['bdate'].split('.')
+            logging.info(f"VK API вернул bdate: '{user_data['bdate']}', разбито на части: {bdate_parts}")
             if len(bdate_parts) >= 2:
-                profile['birth_day'] = int(bdate_parts[0])
-                profile['birth_month'] = int(bdate_parts[1])
+                try:
+                    profile['birth_day'] = int(bdate_parts[0])
+                    profile['birth_month'] = int(bdate_parts[1])
+                    logging.info(f"Из VK API извлечена дата рождения: день={profile['birth_day']}, месяц={profile['birth_month']}")
+                except ValueError as e:
+                    logging.error(f"Ошибка парсинга даты рождения из VK: {e}")
+            else:
+                logging.warning(f"VK API вернул некорректный формат bdate: '{user_data['bdate']}'")
+        else:
+            logging.info(f"VK API не вернул поле 'bdate' для conv_id {conv_id}. birth_day и birth_month останутся None")
 
         # Используем INSERT ... ON CONFLICT (UPSERT) для атомарного создания/обновления
+        # ВАЖНО: Сохраняем существующие birth_day и birth_month если VK API их не предоставляет
         upsert_query = """
         INSERT INTO user_profiles (conv_id, first_name, last_name, screen_name, sex, city, birth_day, birth_month, can_write, last_updated)
         VALUES (%(conv_id)s, %(first_name)s, %(last_name)s, %(screen_name)s, %(sex)s, %(city)s, %(birth_day)s, %(birth_month)s, %(can_write)s, %(last_updated)s)
@@ -1808,8 +1824,14 @@ def fetch_and_update_vk_profile(conn, conv_id):
             screen_name = EXCLUDED.screen_name,
             sex = EXCLUDED.sex,
             city = EXCLUDED.city,
-            birth_day = EXCLUDED.birth_day,
-            birth_month = EXCLUDED.birth_month,
+            birth_day = CASE 
+                WHEN EXCLUDED.birth_day IS NOT NULL THEN EXCLUDED.birth_day 
+                ELSE user_profiles.birth_day 
+            END,
+            birth_month = CASE 
+                WHEN EXCLUDED.birth_month IS NOT NULL THEN EXCLUDED.birth_month 
+                ELSE user_profiles.birth_month 
+            END,
             can_write = EXCLUDED.can_write,
             last_updated = EXCLUDED.last_updated;
         """

@@ -261,6 +261,155 @@ def send_operator_request_notification(dialog_id, initial_question, dialog_summa
         logging.error(f"Ошибка при отправке уведомления о запросе оператора ({dialog_id}) в Telegram: {e}")
 
 # ====
+# 2.5. ФУНКЦИИ ДЛЯ РАБОТЫ С ДНЕМ РОЖДЕНИЯ И СКИДКАМИ
+# ====
+def calculate_birthday_discount_status(birth_day, birth_month):
+    """
+    Рассчитывает статус скидки на день рождения для клиента.
+    
+    Args:
+        birth_day (int): День рождения (1-31)
+        birth_month (int): Месяц рождения (1-12)
+        
+    Returns:
+        dict: Словарь с информацией о статусе скидки:
+            - status: 'upcoming', 'active', 'not_applicable'
+            - message: Текст сообщения для добавления в промпт
+            - days_until_birthday: Количество дней до дня рождения (для upcoming)
+            - birthday_formatted: Отформатированная дата дня рождения
+    """
+    if not birth_day or not birth_month:
+        return {
+            'status': 'not_applicable',
+            'message': '',
+            'days_until_birthday': None,
+            'birthday_formatted': ''
+        }
+    
+    try:
+        from datetime import datetime, timedelta
+        
+        current_date = datetime.now()
+        current_year = current_date.year
+        
+        # Создаем дату дня рождения в текущем году
+        try:
+            birthday_this_year = datetime(current_year, birth_month, birth_day)
+        except ValueError:
+            # Обработка случая 29 февраля в невисокосном году
+            if birth_month == 2 and birth_day == 29:
+                birthday_this_year = datetime(current_year, 2, 28)
+            else:
+                return {
+                    'status': 'not_applicable',
+                    'message': '',
+                    'days_until_birthday': None,
+                    'birthday_formatted': ''
+                }
+        
+        # Рассчитываем разность в днях от текущей даты до дня рождения в этом году
+        current_date_start = current_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        days_until_birthday_this_year = (birthday_this_year - current_date_start).days
+        
+        # Если день рождения был недавно (в пределах 5 дней), используем отрицательное значение
+        if -5 <= days_until_birthday_this_year <= 5:
+            days_until_birthday = days_until_birthday_this_year
+            actual_birthday = birthday_this_year
+        else:
+            # Если день рождения уже прошел давно, берем следующий год
+            if birthday_this_year < current_date_start:
+                try:
+                    actual_birthday = datetime(current_year + 1, birth_month, birth_day)
+                except ValueError:
+                    if birth_month == 2 and birth_day == 29:
+                        actual_birthday = datetime(current_year + 1, 2, 28)
+                days_until_birthday = (actual_birthday - current_date_start).days
+            else:
+                days_until_birthday = days_until_birthday_this_year
+                actual_birthday = birthday_this_year
+        
+        # Форматированная дата для сообщений
+        birthday_formatted = f"{birth_day}.{birth_month:02d}"
+        
+        # Логика определения статуса скидки
+        if -5 <= days_until_birthday <= 5:
+            # Активный период скидки (5 дней до и 5 дней после)
+            if days_until_birthday == 0:
+                status_text = "день рождения"
+            elif days_until_birthday > 0:
+                status_text = f"через {days_until_birthday} дн. ({birthday_formatted}) будет день рождения"
+            else:
+                status_text = f"{abs(days_until_birthday)} дн. назад ({birthday_formatted}) был день рождения"
+            
+            message = f"У клиента {status_text}. Прямо сейчас для него действует скидка 35% на любой курс или набор. Скидка действует 10 дней: 5 дней до дня рождения и 5 дней после. Промокод DR-2025 действует только в эти 10 дней."
+            
+            return {
+                'status': 'active',
+                'message': message,
+                'days_until_birthday': days_until_birthday,
+                'birthday_formatted': birthday_formatted
+            }
+        
+        elif 6 <= days_until_birthday <= 20:
+            # Предупреждение о предстоящей скидке (от 6 до 20 дней)
+            message = f"У клиента через {days_until_birthday} дней ({birthday_formatted}) будет день рождения. Скидка по случаю дня рождения составит 35% на любой курс или набор. Скидка работает 10 дней: 5 дней до дня рождения и 5 дней после. Промокод DR-2025 действует только в эти 10 дней."
+            
+            return {
+                'status': 'upcoming',
+                'message': message,
+                'days_until_birthday': days_until_birthday,
+                'birthday_formatted': birthday_formatted
+            }
+        
+        else:
+            # День рождения далеко или прошло более 5 дней
+            return {
+                'status': 'not_applicable',
+                'message': 'У клиента день рождения не в ближайшее время. Скидка по случаю дня рождения не действует.',
+                'days_until_birthday': days_until_birthday,
+                'birthday_formatted': birthday_formatted
+            }
+    
+    except Exception as e:
+        logging.error(f"Ошибка при расчете статуса скидки на день рождения: {e}")
+        return {
+            'status': 'not_applicable',
+            'message': '',
+            'days_until_birthday': None,
+            'birthday_formatted': ''
+        }
+
+def extract_birthday_from_context(context_text):
+    """
+    Извлекает данные о дне рождения из контекста клиента.
+    
+    Args:
+        context_text (str): Текст контекста от context builder
+        
+    Returns:
+        tuple: (birth_day, birth_month) или (None, None) если не найдено
+    """
+    try:
+        import re
+        
+        # Ищем паттерн "Дата рождения: \d+.\d+"
+        birthday_pattern = r'Дата рождения: (\d+)\.(\d+)'
+        match = re.search(birthday_pattern, context_text)
+        
+        if match:
+            birth_day = int(match.group(1))
+            birth_month = int(match.group(2))
+            logging.debug(f"Найдена дата рождения: {birth_day}.{birth_month}")
+            return birth_day, birth_month
+        else:
+            logging.debug("Данные о дне рождения не найдены в контексте")
+            return None, None
+            
+    except Exception as e:
+        logging.error(f"Ошибка при извлечении данных о дне рождения: {e}")
+        return None, None
+
+# ====
 # 3. РАБОТА С ЯНДЕКС.ДИСКОМ: ЗАГРУЗКА ЛОГ-ФАЙЛОВ
 # ====
 def upload_log_to_yandex_disk(log_file_path_to_upload):
@@ -1063,7 +1212,21 @@ def generate_response(user_question_text, context_from_builder, current_custom_p
         if kb_lines:
             knowledge_hint_text = "Контекст из базы знаний:\n" + "\n".join(kb_lines)
 
-    prompt_parts = [current_custom_prompt]
+    # Извлекаем данные о дне рождения из контекста и рассчитываем сообщение
+    birth_day, birth_month = extract_birthday_from_context(context_from_builder)
+    birthday_status = calculate_birthday_discount_status(birth_day, birth_month)
+    birthday_discount_message = birthday_status.get('message', '')
+    
+    # Если сообщение пустое, используем базовое значение
+    if not birthday_discount_message:
+        birthday_discount_message = ""  # Пустая строка, если нет информации о дне рождения
+    
+    logging.debug(f"Birthday discount message: {birthday_discount_message[:100]}..." if birthday_discount_message else "Birthday discount message: (empty)")
+
+    # Подставляем переменную birthday_discount_message в промпт
+    formatted_prompt = current_custom_prompt.format(birthday_discount_message=birthday_discount_message)
+
+    prompt_parts = [formatted_prompt]
     if context_from_builder.strip():
         prompt_parts.append(f"Информация о клиенте и история диалога:\n{context_from_builder.strip()}")
     if knowledge_hint_text:
@@ -1707,6 +1870,7 @@ def format_user_profile(rows):
         lines.append(f"Город: {profile['city']}")
     if profile.get('birth_day') and profile.get('birth_month'):
         lines.append(f"Дата рождения: {profile['birth_day']}.{profile['birth_month']}")
+    
     if profile.get('lead_qualification'):
         lines.append(f"Квалификация лида: {profile['lead_qualification']}")
     if profile.get('funnel_stage'):

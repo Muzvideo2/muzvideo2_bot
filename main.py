@@ -123,6 +123,21 @@ except ValueError:
     OPERATOR_VK_ID = 0
 
 # ====
+# МЕСЯЦЫ НА РУССКОМ ЯЗЫКЕ ДЛЯ УСТРАНЕНИЯ НЕОДНОЗНАЧНОСТИ ДАТ
+# ====
+RUSSIAN_MONTHS = {
+    1: "января", 2: "февраля", 3: "марта", 4: "апреля",
+    5: "мая", 6: "июня", 7: "июля", 8: "августа",
+    9: "сентября", 10: "октября", 11: "ноября", 12: "декабря"
+}
+
+RUSSIAN_MONTHS_REVERSE = {
+    "января": 1, "февраля": 2, "марта": 3, "апреля": 4,
+    "мая": 5, "июня": 6, "июля": 7, "августа": 8,
+    "сентября": 9, "октября": 10, "ноября": 11, "декабря": 12
+}
+
+# ====
 # ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ПОДКЛЮЧЕНИЯ К БД
 # ====
 def get_main_db_connection():
@@ -328,8 +343,9 @@ def calculate_birthday_discount_status(birth_day, birth_month):
                 days_until_birthday = days_until_birthday_this_year
                 actual_birthday = birthday_this_year
         
-        # Форматированная дата для сообщений
-        birthday_formatted = f"{birth_day}.{birth_month:02d}"
+        # Форматированная дата для сообщений (теперь неоднозначная)
+        month_name = RUSSIAN_MONTHS.get(birth_month, str(birth_month))
+        birthday_formatted = f"{birth_day} {month_name}"
         
         # Логика определения статуса скидки
         if -5 <= days_until_birthday <= 5:
@@ -382,6 +398,7 @@ def calculate_birthday_discount_status(birth_day, birth_month):
 def extract_birthday_from_context(context_text):
     """
     Извлекает данные о дне рождения из контекста клиента.
+    Поддерживает как старый формат (30.8), так и новый (30 августа).
     
     Args:
         context_text (str): Текст контекста от context builder
@@ -392,18 +409,31 @@ def extract_birthday_from_context(context_text):
     try:
         import re
         
-        # Ищем паттерн "Дата рождения: \d+.\d+"
-        birthday_pattern = r'Дата рождения: (\d+)\.(\d+)'
-        match = re.search(birthday_pattern, context_text)
+        # Новый формат: "Дата рождения: 30 августа" (приоритетный)
+        new_pattern = r'Дата рождения: (\d+) (января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)'
+        match = re.search(new_pattern, context_text)
+        
+        if match:
+            birth_day = int(match.group(1))
+            month_name = match.group(2)
+            birth_month = RUSSIAN_MONTHS_REVERSE.get(month_name)
+            if birth_month:
+                logging.info(f"Найдена дата рождения (новый формат): {birth_day} {month_name} -> {birth_day}.{birth_month}")
+                return birth_day, birth_month
+        
+        # Старый формат: "Дата рождения: 30.8" (для обратной совместимости)
+        old_pattern = r'Дата рождения: (\d+)\.(\d+)'
+        match = re.search(old_pattern, context_text)
         
         if match:
             birth_day = int(match.group(1))
             birth_month = int(match.group(2))
-            logging.debug(f"Найдена дата рождения: {birth_day}.{birth_month}")
+            logging.info(f"Найдена дата рождения (старый формат): {birth_day}.{birth_month}")
             return birth_day, birth_month
-        else:
-            logging.debug("Данные о дне рождения не найдены в контексте")
-            return None, None
+        
+        logging.info("Данные о дне рождения не найдены в контексте")
+        logging.info(f"Поиск в контексте (первые 1000 символов): {context_text[:1000]}")
+        return None, None
             
     except Exception as e:
         logging.error(f"Ошибка при извлечении данных о дне рождения: {e}")
@@ -1222,6 +1252,7 @@ def generate_response(user_question_text, context_from_builder, current_custom_p
         birthday_discount_message = ""  # Пустая строка, если нет информации о дне рождения
     
     logging.debug(f"Birthday discount message: {birthday_discount_message[:100]}..." if birthday_discount_message else "Birthday discount message: (empty)")
+    logging.info(f"Birthday extraction debug: birth_day={birth_day}, birth_month={birth_month}, status={birthday_status.get('status')}, message_length={len(birthday_discount_message) if birthday_discount_message else 0}")
 
     # Подставляем переменную birthday_discount_message в промпт
     formatted_prompt = current_custom_prompt.format(birthday_discount_message=birthday_discount_message)
@@ -1869,7 +1900,13 @@ def format_user_profile(rows):
     if profile.get('city'):
         lines.append(f"Город: {profile['city']}")
     if profile.get('birth_day') and profile.get('birth_month'):
-        lines.append(f"Дата рождения: {profile['birth_day']}.{profile['birth_month']}")
+        birth_day = profile['birth_day']
+        birth_month = profile['birth_month']
+        month_name = RUSSIAN_MONTHS.get(birth_month, str(birth_month))
+        lines.append(f"Дата рождения: {birth_day} {month_name}")
+        logging.info(f"Добавлена дата рождения в карточку: {birth_day} {month_name}")
+    else:
+        logging.info(f"Дата рождения отсутствует: birth_day={profile.get('birth_day')}, birth_month={profile.get('birth_month')}")
     
     if profile.get('lead_qualification'):
         lines.append(f"Квалификация лида: {profile['lead_qualification']}")

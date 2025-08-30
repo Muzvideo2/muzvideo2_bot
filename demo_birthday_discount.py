@@ -7,7 +7,7 @@
 import json
 import logging
 from datetime import datetime
-from client_card_analyzer import ClientCardAnalyzer, calculate_birthday_discount_status
+from old_client_card_analyzer import ClientCardAnalyzer, calculate_birthday_discount_status
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

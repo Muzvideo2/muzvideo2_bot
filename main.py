@@ -1633,9 +1633,12 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
 
     if vk_api_for_sending:
         try:
+            # Фильтруем внутренние размышления бота перед отправкой
+            filtered_message = remove_internal_tags(bot_response_text)
+            
             vk_api_for_sending.messages.send(
                 user_id=conv_id_to_respond,
-                message=bot_response_text,
+                message=filtered_message,
                 random_id=int(time.time() * 10000),
                 disable_mentions=1
             )
@@ -1747,6 +1750,24 @@ EXCLUDED_TABLES = ['operator_activity']
 DIALOGUES_LIMIT = 30
 # Регулярное выражение для поиска email
 EMAIL_REGEX = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+
+def remove_internal_tags(message):
+    """
+    Удаляет внутренние размышления бота, ограниченные тегами <internal> и <internal_analysis>.
+    """
+    import re
+    
+    # Удаляем теги <internal> и </internal>
+    message = re.sub(r'<internal>.*?</internal>', '', message, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Удаляем теги <internal_analysis> и </internal_analysis>
+    message = re.sub(r'<internal_analysis>.*?</internal_analysis>', '', message, flags=re.DOTALL | re.IGNORECASE)
+    
+    # Убираем лишние пробелы и переносы строк
+    message = re.sub(r'\n\s*\n', '\n', message)  # Убираем множественные переносы
+    message = message.strip()  # Убираем пробелы в начале и конце
+    
+    return message
 
 def context_default_serializer(obj):
     """Сериализатор для JSON, обрабатывающий datetime."""

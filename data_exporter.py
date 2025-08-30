@@ -185,6 +185,20 @@ def transform_client_data(client_data, purchased_products, recent_messages):
     logger.info("Данные клиента успешно преобразованы (включены все поля профиля)")
     return transformed_data
 
+def json_serial(obj):
+    """
+    JSON serializer для объектов, которые не сериализуются по умолчанию
+    
+    Args:
+        obj: Объект для сериализации
+        
+    Returns:
+        str: Строковое представление объекта
+    """
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
+
 def save_to_json(data, conv_id):
     """
     Сохраняет данные в JSON-файл.
@@ -210,7 +224,7 @@ def save_to_json(data, conv_id):
     # Сохранение данных в файл
     try:
         with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, indent=2, default=json_serial)
         logger.info(f"Данные успешно сохранены в файл: {filepath}")
         return filepath
     except Exception as e:

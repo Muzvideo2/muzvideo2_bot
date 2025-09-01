@@ -56,7 +56,7 @@ from tqdm import tqdm
 
 # --- НАСТРОЙКИ ---
 LOG_FILE_NAME = "create_missing_profiles_errors.log"
-PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "zeta-tracer-462306-r7")
+PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "hardy-technique-470816-f2")
 LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.0-flash"
 

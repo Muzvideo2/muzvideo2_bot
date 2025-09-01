@@ -46,7 +46,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 VK_COMMUNITY_ID = 48116621
 
 # Настройки для Vertex AI
-PROJECT_ID = "zeta-tracer-462306-r7"
+PROJECT_ID = "hardy-technique-470816-f2"
 LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"
 SEARCH_MODEL_NAME = "gemini-2.0-flash-exp"  # Быстрая модель для поиска в базе знаний

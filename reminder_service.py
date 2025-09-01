@@ -59,7 +59,7 @@ except ImportError:
 
 # --- НАСТРОЙКИ ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
-PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "zeta-tracer-462306-r7")
+PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "hardy-technique-470816-f2")
 LOCATION = os.environ.get("GEMINI_LOCATION", "us-central1")
 ADMIN_CONV_ID = 78671089  # ID администратора
 

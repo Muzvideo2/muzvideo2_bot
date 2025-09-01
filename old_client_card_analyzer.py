@@ -133,7 +133,7 @@ logging.basicConfig(
 )
 
 # Константы
-PROJECT_ID = "zeta-tracer-462306-r7"
+PROJECT_ID = "hardy-technique-470816-f2"
 LOCATION = "us-central1"
 MODEL_NAME = "gemini-2.5-pro"
 DATABASE_URL = os.environ.get("DATABASE_URL")

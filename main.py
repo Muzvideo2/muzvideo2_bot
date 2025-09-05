@@ -1785,6 +1785,7 @@ def remove_internal_tags(message):
 def vkvideo_add(message_text):
     """
     Проверяет сообщение на наличие идентификаторов видео VK и вырезает их.
+    Также удаляет двойные звездочки, которые не отображаются как жирный текст в VK.
     
     Args:
         message_text (str): Текст сообщения
@@ -1794,19 +1795,21 @@ def vkvideo_add(message_text):
     """
     import re
     
-    # Регулярное выражение для поиска идентификаторов видео в формате цифра_цифра
+    # Удаляем двойные звездочки, которые не преобразуются в жирный шрифт в ВК
+    message_text = message_text.replace('**', '')
+    
+    # Регулярное выражение для поиска идентификаторов видео в формате цифры_цифры
     video_pattern = r'\b(\d+_\d+)\b'
     matches = re.findall(video_pattern, message_text)
     
     if matches:
         # Удаляем все найденные идентификаторы видео из текста сообщения
-        cleaned_message = re.sub(video_pattern, '', message_text).strip()
-        # Также удаляем лишние пробелы, которые могли остаться
-        cleaned_message = re.sub(r'\s+', ' ', cleaned_message)
-        # Убираем возможные запятые или другие знаки препинания, оставшиеся после удаления ID
-        cleaned_message = re.sub(r'[\s,]+', ' ', cleaned_message).strip()
+        # НЕ ИЗМЕНЯЕМ форматирование текста
+        cleaned_message = re.sub(video_pattern, '', message_text)
         return cleaned_message, matches
     else:
+        # Даже если видео не найдены, все равно удаляем двойные звездочки
+        # НЕ ИЗМЕНЯЕМ форматирование текста
         return message_text, []
 
 def context_default_serializer(obj):

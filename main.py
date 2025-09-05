@@ -1636,8 +1636,8 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
             # Фильтруем внутренние размышления бота перед отправкой
             filtered_message = remove_internal_tags(bot_response_text)
             
-            # Проверяем наличие видео в сообщении и вырезаем идентификатор
-            final_message, video_id = vkvideo_add(filtered_message)
+            # Проверяем наличие видео в сообщении и вырезаем идентификаторы
+            final_message, video_ids = vkvideo_add(filtered_message)
             
             # Подготавливаем параметры для отправки сообщения
             send_params = {
@@ -1647,13 +1647,13 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
                 'disable_mentions': 1
             }
             
-            # Если найден идентификатор видео, добавляем его к параметрам отправки
-            if video_id:
-                video_attachment = f"video-{video_id}"
-                send_params['attachment'] = video_attachment
-                logging.info(f"К сообщению будет прикреплено видео: {video_attachment}")
+            # Если найдены идентификаторы видео, добавляем их к параметрам отправки
+            if video_ids:
+                video_attachments = [f"video-{video_id}" for video_id in video_ids]
+                send_params['attachment'] = ','.join(video_attachments)
+                logging.info(f"К сообщению будут прикреплены видео: {video_attachments}")
             
-            # Отправляем сообщение с возможным вложением
+            # Отправляем сообщение с возможными вложениями
             vk_api_for_sending.messages.send(**send_params)
             logging.info(f"Ответ бота успешно отправлен пользователю {conv_id_to_respond}.")
         except vk_api.ApiError as e:
@@ -1784,29 +1784,30 @@ def remove_internal_tags(message):
 
 def vkvideo_add(message_text):
     """
-    Проверяет сообщение на наличие идентификатора видео VK и вырезает его.
+    Проверяет сообщение на наличие идентификаторов видео VK и вырезает их.
     
     Args:
         message_text (str): Текст сообщения
         
     Returns:
-        tuple: (очищенный_текст_сообщения, идентификатор_видео_или_None)
+        tuple: (очищенный_текст_сообщения, список_идентификаторов_видео)
     """
     import re
     
-    # Регулярное выражение для поиска идентификатора видео в формате цифры_цифры
+    # Регулярное выражение для поиска идентификаторов видео в формате цифра_цифра
     video_pattern = r'\b(\d+_\d+)\b'
-    match = re.search(video_pattern, message_text)
+    matches = re.findall(video_pattern, message_text)
     
-    if match:
-        video_id = match.group(1)
-        # Удаляем идентификатор видео из текста сообщения
-        cleaned_message = re.sub(video_pattern, '', message_text, count=1).strip()
+    if matches:
+        # Удаляем все найденные идентификаторы видео из текста сообщения
+        cleaned_message = re.sub(video_pattern, '', message_text).strip()
         # Также удаляем лишние пробелы, которые могли остаться
         cleaned_message = re.sub(r'\s+', ' ', cleaned_message)
-        return cleaned_message, video_id
+        # Убираем возможные запятые или другие знаки препинания, оставшиеся после удаления ID
+        cleaned_message = re.sub(r'[\s,]+', ' ', cleaned_message).strip()
+        return cleaned_message, matches
     else:
-        return message_text, None
+        return message_text, []
 
 def context_default_serializer(obj):
     """Сериализатор для JSON, обрабатывающий datetime."""

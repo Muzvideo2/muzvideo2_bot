@@ -9,6 +9,7 @@ import subprocess
 import tempfile  # Для работы с временными файлами при анализе вложений
 from datetime import datetime, timedelta, timezone
 import threading
+import queue
 from concurrent.futures import ThreadPoolExecutor, TimeoutError  # Для асинхронного context builder
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
@@ -62,6 +63,11 @@ user_names = {}
 user_log_files = {}
 user_buffers = {}
 last_questions = {}
+
+# Глобальные переменные для троттлинга VK API
+vk_send_queue = queue.Queue()
+vk_send_thread = None
+vk_send_thread_running = False
 
 # ThreadPoolExecutor для асинхронной обработки context builder
 context_executor = ThreadPoolExecutor(max_workers=10, thread_name_prefix="ContextBuilder")
@@ -1653,13 +1659,13 @@ def generate_and_send_response(conv_id_to_respond, vk_api_for_sending, vk_callba
                 send_params['attachment'] = ','.join(video_attachments)
                 logging.info(f"К сообщению будут прикреплены видео: {video_attachments}")
             
-            # Отправляем сообщение с возможными вложениями
-            vk_api_for_sending.messages.send(**send_params)
-            logging.info(f"Ответ бота успешно отправлен пользователю {conv_id_to_respond}.")
-        except vk_api.ApiError as e:
-            logging.error(f"VK API Ошибка при отправке сообщения пользователю {conv_id_to_respond}: {e}")
+            # Отправляем сообщение с троттлингом (не более 1 сообщения в секунду)
+            if send_message_throttled(vk_api_for_sending, send_params, conv_id_to_respond):
+                logging.info(f"Сообщение для пользователя {conv_id_to_respond} поставлено в очередь отправки")
+            else:
+                logging.error(f"Не удалось поставить сообщение для пользователя {conv_id_to_respond} в очередь отправки")
         except Exception as e:
-            logging.error(f"Неизвестная ошибка при отправке сообщения VK пользователю {conv_id_to_respond}: {e}")
+            logging.error(f"Ошибка при подготовке сообщения для отправки пользователю {conv_id_to_respond}: {e}")
     else:
         logging.warning(f"Объект VK API не передан в generate_and_send_response для conv_id {conv_id_to_respond}. Сообщение не отправлено.")
 
@@ -1953,6 +1959,81 @@ def find_user_data_tables(conn):
         logging.error(f"Не удалось получить список таблиц из БД: {e}")
         return []
 
+# === ФУНКЦИИ ТРОТТЛИНГА ДЛЯ VK API ===
+
+def vk_send_worker():
+    """Фоновый поток для отправки сообщений через VK API с ограничением 1 сообщение/секунду."""
+    global vk_send_thread_running
+    logging.info("Запущен фоновый поток отправки сообщений VK API")
+    
+    while vk_send_thread_running:
+        try:
+            # Получаем сообщение из очереди (ожидаем до 1 секунды)
+            item = vk_send_queue.get(timeout=1.0)
+            
+            # Если получили сигнал остановки
+            if item is None:
+                break
+                
+            # Распаковываем параметры
+            vk_api_obj, send_params, conv_id = item
+            
+            # Отправляем сообщение
+            vk_api_obj.messages.send(**send_params)
+            logging.info(f"Сообщение успешно отправлено пользователю {conv_id}")
+            
+            # Ждем 1 секунду перед следующей отправкой
+            time.sleep(1.0)
+            
+            # Помечаем задачу как выполненную
+            vk_send_queue.task_done()
+            
+        except queue.Empty:
+            # Очередь пуста, продолжаем цикл
+            continue
+        except Exception as e:
+            logging.error(f"Ошибка при отправке сообщения через VK API: {e}")
+            # Даже в случае ошибки помечаем задачу как выполненную, чтобы не блокировать очередь
+            try:
+                vk_send_queue.task_done()
+            except ValueError:
+                # Если task_done() вызван больше раз, чем было get(), игнорируем
+                pass
+
+def start_vk_send_thread():
+    """Запускает фоновый поток для отправки сообщений VK API."""
+    global vk_send_thread, vk_send_thread_running
+    
+    if vk_send_thread is None or not vk_send_thread.is_alive():
+        vk_send_thread_running = True
+        vk_send_thread = threading.Thread(target=vk_send_worker, daemon=True)
+        vk_send_thread.start()
+        logging.info("Фоновый поток отправки сообщений VK API запущен")
+
+def stop_vk_send_thread():
+    """Останавливает фоновый поток для отправки сообщений VK API."""
+    global vk_send_thread_running
+    
+    vk_send_thread_running = False
+    # Отправляем сигнал остановки в очередь
+    try:
+        vk_send_queue.put_nowait(None)
+    except queue.Full:
+        pass  # Игнорируем, если очередь полна
+
+def send_message_throttled(vk_api_obj, send_params, conv_id):
+    """Отправляет сообщение через очередь с троттлингом."""
+    try:
+        # Добавляем сообщение в очередь
+        vk_send_queue.put((vk_api_obj, send_params, conv_id))
+        logging.info(f"Сообщение для пользователя {conv_id} добавлено в очередь отправки")
+        return True
+    except Exception as e:
+        logging.error(f"Ошибка при добавлении сообщения в очередь отправки: {e}")
+        return False
+
+# === КОНЕЦ ФУНКЦИЙ ТРОТТЛИНГА ДЛЯ VK API ===
+
 def fetch_data_from_table(conn, table_name, conv_id):
     """Извлекает все строки для данного conv_id из указанной таблицы."""
     try:
@@ -2160,6 +2241,9 @@ if __name__ == "__main__":
     # Инициализация сервиса напоминаний
     if not initialize_reminder_service():
         logging.error("Не удалось инициализировать сервис напоминаний. Продолжаем без него.")
+    
+    # Запуск фонового потока для троттлинга VK API
+    start_vk_send_thread()
     
     logging.info("Запуск Flask-приложения в режиме разработки...")
     server_port = int(os.environ.get("PORT", 5000))

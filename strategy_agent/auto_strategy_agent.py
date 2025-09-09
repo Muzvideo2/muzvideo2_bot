@@ -45,11 +45,34 @@ def setup_environment():
     
     # Проверяем Google credentials
     creds_path = os.environ.get('GOOGLE_APPLICATION_CREDENTIALS')
-    if not creds_path or not os.path.exists(creds_path):
-        logger.error(f"Google credentials не найдены: {creds_path}")
+    if not creds_path:
+        logger.error("GOOGLE_APPLICATION_CREDENTIALS не установлена")
         return False
     
-    logger.info(f"Google credentials: {creds_path}")
+    creds_path = creds_path.strip(' "')
+    logger.info(f"GOOGLE_APPLICATION_CREDENTIALS: {creds_path}")
+    
+    if not os.path.exists(creds_path):
+        logger.error(f"Файл учетных данных не найден: {creds_path}")
+        return False
+    
+    # Проверяем содержимое файла учетных данных
+    try:
+        import json
+        with open(creds_path, 'r', encoding='utf-8') as f:
+            creds_data = json.load(f)
+            logger.info(f"Тип учетной записи: {creds_data.get('type', 'unknown')}")
+            project_id_from_file = creds_data.get('project_id', 'unknown')
+            logger.info(f"Project ID в файле: {project_id_from_file}")
+            logger.info(f"Service account email: {creds_data.get('client_email', 'unknown')}")
+            
+            # Обновляем переменные окружения на основе файла учетных данных
+            os.environ['GOOGLE_CLOUD_PROJECT'] = project_id_from_file
+            logger.info(f"Обновлен GOOGLE_CLOUD_PROJECT: {project_id_from_file}")
+    except Exception as e:
+        logger.error(f"Ошибка чтения файла учетных данных: {e}")
+        return False
+    
     logger.info("Окружение настроено успешно")
     return True
 

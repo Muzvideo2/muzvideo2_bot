@@ -427,7 +427,7 @@ CARD_ANALYSIS_PROMPT = """
 
 6. **ФОРМАТ ОТВЕТА JSON** (строго соблюдай структуру):
 
-```json
+``json
 {{
   "profile_updates": {{
     "lead_qualification": ["тёплый"],
@@ -497,8 +497,16 @@ class ClientCardAnalyzer:
             credentials = service_account.Credentials.from_service_account_file(credentials_path)
             logging.info(f"[VERTEX_AI] Credentials загружены успешно")
             
-            logging.info(f"[VERTEX_AI] Инициализируем Vertex AI: project={PROJECT_ID}, location={LOCATION}")
-            vertexai.init(project=PROJECT_ID, location=LOCATION, credentials=credentials)
+            # Проверяем, есть ли у учетных данных необходимые разрешения
+            logging.info(f"[VERTEX_AI] Проверяем project ID из credentials: {credentials.project_id}")
+            logging.info(f"[VERTEX_AI] Проверяем service account email: {credentials.service_account_email}")
+            
+            # Используем PROJECT_ID из файла учетных данных вместо жестко заданного
+            actual_project_id = credentials.project_id if credentials.project_id else PROJECT_ID
+            logging.info(f"[VERTEX_AI] Используем project ID: {actual_project_id}")
+            
+            logging.info(f"[VERTEX_AI] Инициализируем Vertex AI: project={actual_project_id}, location={LOCATION}")
+            vertexai.init(project=actual_project_id, location=LOCATION, credentials=credentials)
             
             logging.info(f"[VERTEX_AI] Создаём модель: {MODEL_NAME}")
             
@@ -814,6 +822,12 @@ class ClientCardAnalyzer:
                 except (TimeoutError, Exception) as api_error:
                     logging.error(f"[GEMINI API ERROR] Попытка {attempt + 1}: {api_error}")
                     logging.error(f"[GEMINI API ERROR] Тип ошибки: {type(api_error)}")
+                    
+                    # Дополнительная проверка для PermissionDenied ошибок
+                    if "PermissionDenied" in str(type(api_error)) or "403" in str(api_error):
+                        logging.error(f"[GEMINI PERMISSION ERROR] Проблема с разрешениями учетной записи Vertex AI")
+                        logging.error(f"[GEMINI PERMISSION ERROR] Убедитесь, что у вашей service account есть роль 'AI Platform User' или 'ML API User'")
+                        logging.error(f"[GEMINI PERMISSION ERROR] Также проверьте, что проект ID в credentials совпадает с PROJECT_ID={PROJECT_ID}")
                     
                     if attempt < MAX_RETRIES:
                         logging.info(f"[RETRY] Ожидаем {RETRY_DELAY_SECONDS} секунд перед следующей попыткой...")
